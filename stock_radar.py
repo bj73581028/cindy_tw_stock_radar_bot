@@ -1,86 +1,74 @@
 import os
+import time
 import requests
 import pandas as pd
 import numpy as np
 import yfinance as yf
-from datetime import datetime
+from datetime import datetime, timedelta
+
+# ============================================================
+# 台股飆股雷達 5.0
+# ============================================================
+#
+# 功能：
+# 1. 上市＋上櫃股票
+# 2. 技術面
+# 3. 成交量
+# 4. 成交金額
+# 5. 產業強度
+# 6. 法人籌碼
+# 7. 基本面
+# 8. 防追高
+# 9. S / A / B 分級
+# 10. Telegram 推播
+#
+# ============================================================
+
 
 # ============================================================
 # Telegram
 # ============================================================
 
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+TELEGRAM_BOT_TOKEN = os.environ.get(
+    "TELEGRAM_BOT_TOKEN"
+)
+
+TELEGRAM_CHAT_ID = os.environ.get(
+    "TELEGRAM_CHAT_ID"
+)
 
 
 # ============================================================
 # 基本設定
 # ============================================================
 
-MIN_SCORE = 60
-TOP_N = 15
+MIN_SCAN_SCORE = 50
 
-# 台股主要股票池
-# .TW = 上市
-# .TWO = 上櫃
-#
-# 先使用大型及熱門股票建立穩定版本，
-# 後續可再擴充完整市場股票清單。
-STOCKS = [
-    # 半導體
-    "2330.TW", "2454.TW", "2303.TW", "2379.TW",
-    "2408.TW", "3034.TW", "3035.TW", "3044.TW",
-    "3711.TW", "3661.TW", "4966.TW", "5274.TW",
-    "6488.TWO", "6515.TW", "6643.TW", "6690.TW",
-    "2449.TW", "6770.TW",
+TOP_STRONG = 5
+TOP_WATCH = 10
+TOP_ABNORMAL = 10
 
-    # AI / 電腦 / 伺服器
-    "2317.TW", "2382.TW", "2356.TW", "2357.TW",
-    "3231.TW", "2376.TW", "2377.TW", "2395.TW",
-    "2308.TW", "3017.TW", "6669.TW", "2383.TW",
-    "3706.TW", "2324.TW", "2353.TW",
+MIN_TURNOVER = 20_000_000
 
-    # IC / 電子零組件
-    "2301.TW", "2327.TW", "2344.TW", "2368.TW",
-    "2379.TW", "2385.TW", "2395.TW", "2409.TW",
-    "2458.TW", "2474.TW", "2476.TW", "2481.TW",
-    "2492.TW", "3006.TW", "3037.TW", "3305.TW",
-    "3324.TW", "3443.TW", "3533.TW", "3702.TW",
-    "4938.TW", "5483.TWO", "6239.TW", "8046.TW",
-    "8048.TW", "8358.TW",
 
-    # 網通 / 通訊
-    "2412.TW", "3045.TW", "4904.TW", "2345.TW",
-    "3596.TW", "6285.TW", "5388.TWO",
+# ============================================================
+# API
+# ============================================================
 
-    # 被動元件
-    "2327.TW", "2492.TW", "3026.TW", "8042.TW",
+TWSE_URL = (
+    "https://openapi.twse.com.tw/"
+    "v1/exchangeReport/STOCK_DAY_ALL"
+)
 
-    # 光電
-    "3481.TW", "2406.TW", "3008.TW", "6116.TW",
+TPEX_URL = (
+    "https://www.tpex.org.tw/"
+    "openapi/v1/tpex_mainboard_quotes"
+)
 
-    # PCB / CCL
-    "3037.TW", "2368.TW", "3044.TW", "6274.TWO",
-    "8358.TW", "6213.TWO",
-
-    # 航運
-    "2603.TW", "2609.TW", "2610.TW", "2618.TW",
-
-    # 金融
-    "2880.TW", "2881.TW", "2882.TW", "2883.TW",
-    "2884.TW", "2885.TW", "2886.TW", "2887.TW",
-    "2888.TW", "2889.TW", "2890.TW", "2891.TW",
-    "2892.TW", "5880.TW", "5871.TW",
-
-    # 傳產
-    "1101.TW", "1102.TW", "1216.TW",
-    "1301.TW", "1303.TW", "1402.TW",
-    "2002.TW", "2207.TW", "2308.TW",
-
-    # 其他熱門
-    "2105.TW", "2542.TW", "2606.TW",
-    "2707.TW", "2727.TW", "2912.TW",
-]
+TPEX_INSTITUTION_URL = (
+    "https://www.tpex.org.tw/"
+    "openapi/v1/tpex_3insti_daily_trading"
+)
 
 
 # ============================================================
@@ -90,13 +78,17 @@ STOCKS = [
 def send_telegram(message):
 
     if not TELEGRAM_BOT_TOKEN:
-        raise Exception("找不到 TELEGRAM_BOT_TOKEN")
+        raise Exception(
+            "找不到 TELEGRAM_BOT_TOKEN"
+        )
 
     if not TELEGRAM_CHAT_ID:
-        raise Exception("找不到 TELEGRAM_CHAT_ID")
+        raise Exception(
+            "找不到 TELEGRAM_CHAT_ID"
+        )
 
     url = (
-        f"https://api.telegram.org/"
+        "https://api.telegram.org/"
         f"bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     )
 
@@ -113,30 +105,299 @@ def send_telegram(message):
 
 
 # ============================================================
-# 下載股票資料
+# HTTP
 # ============================================================
 
-def download_stock(ticker):
+def get_json(url, timeout=30):
+
+    headers = {
+        "User-Agent":
+        "Mozilla/5.0 "
+        "(Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 "
+        "Chrome/120 Safari/537.36"
+    }
+
+    response = requests.get(
+        url,
+        headers=headers,
+        timeout=timeout
+    )
+
+    response.raise_for_status()
+
+    return response.json()
+
+
+# ============================================================
+# 取得上市股票
+# ============================================================
+
+def get_twse_stocks():
+
+    print("📡 取得上市股票資料...")
 
     try:
 
-        df = yf.download(
-            ticker,
+        data = get_json(
+            TWSE_URL
+        )
+
+        df = pd.DataFrame(data)
+
+        if df.empty:
+            return pd.DataFrame()
+
+        print(
+            f"✅ 上市股票：{len(df)} 檔"
+        )
+
+        return df
+
+    except Exception as e:
+
+        print(
+            f"❌ 上市股票資料失敗：{e}"
+        )
+
+        return pd.DataFrame()
+
+
+# ============================================================
+# 取得上櫃股票
+# ============================================================
+
+def get_tpex_stocks():
+
+    print("📡 取得上櫃股票資料...")
+
+    try:
+
+        data = get_json(
+            TPEX_URL
+        )
+
+        df = pd.DataFrame(data)
+
+        if df.empty:
+            return pd.DataFrame()
+
+        print(
+            f"✅ 上櫃股票：{len(df)} 檔"
+        )
+
+        return df
+
+    except Exception as e:
+
+        print(
+            f"❌ 上櫃股票資料失敗：{e}"
+        )
+
+        return pd.DataFrame()
+
+
+# ============================================================
+# 清理股票代號
+# ============================================================
+
+def clean_stock_id(value):
+
+    if value is None:
+        return None
+
+    value = str(value).strip()
+
+    if not value:
+        return None
+
+    # 只接受4碼股票代號
+    if (
+        len(value) == 4
+        and value.isdigit()
+    ):
+        return value
+
+    return None
+
+
+# ============================================================
+# 建立股票池
+# ============================================================
+
+def build_stock_pool():
+
+    twse = get_twse_stocks()
+
+    tpex = get_tpex_stocks()
+
+    stock_ids = set()
+
+    # -------------------------
+    # TWSE
+    # -------------------------
+
+    if not twse.empty:
+
+        for col in [
+            "Code",
+            "股票代號",
+            "證券代號"
+        ]:
+
+            if col in twse.columns:
+
+                for value in twse[col]:
+
+                    stock_id = (
+                        clean_stock_id(
+                            value
+                        )
+                    )
+
+                    if stock_id:
+                        stock_ids.add(
+                            stock_id
+                        )
+
+                break
+
+    # -------------------------
+    # TPEX
+    # -------------------------
+
+    if not tpex.empty:
+
+        for col in [
+            "SecuritiesCompanyCode",
+            "Code",
+            "股票代號",
+            "證券代號"
+        ]:
+
+            if col in tpex.columns:
+
+                for value in tpex[col]:
+
+                    stock_id = (
+                        clean_stock_id(
+                            value
+                        )
+                    )
+
+                    if stock_id:
+                        stock_ids.add(
+                            stock_id
+                        )
+
+                break
+
+    stock_ids = sorted(
+        stock_ids
+    )
+
+    print(
+        f"📊 全市場股票池："
+        f"{len(stock_ids)} 檔"
+    )
+
+    return stock_ids
+
+
+# ============================================================
+# Yahoo 批次下載
+# ============================================================
+
+def download_all_stocks(
+    stock_ids
+):
+
+    tickers = [
+        f"{stock_id}.TW"
+        for stock_id in stock_ids
+    ]
+
+    print(
+        "📥 開始下載全市場歷史行情..."
+    )
+
+    try:
+
+        data = yf.download(
+            tickers=tickers,
             period="1y",
             interval="1d",
             auto_adjust=False,
             progress=False,
-            threads=False
+            threads=True,
+            group_by="ticker"
         )
 
-        if df is None or df.empty:
+        if data is None or data.empty:
+
+            print(
+                "❌ Yahoo 沒有回傳資料"
+            )
+
             return None
 
-        # Yahoo 有時會回傳 MultiIndex
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
+        print(
+            "✅ 歷史行情下載完成"
+        )
 
-        columns = [
+        return data
+
+    except Exception as e:
+
+        print(
+            f"❌ Yahoo下載失敗：{e}"
+        )
+
+        return None
+
+
+# ============================================================
+# 取得個股 DataFrame
+# ============================================================
+
+def get_stock_dataframe(
+    all_data,
+    stock_id
+):
+
+    ticker = (
+        f"{stock_id}.TW"
+    )
+
+    try:
+
+        if (
+            isinstance(
+                all_data.columns,
+                pd.MultiIndex
+            )
+        ):
+
+            # group_by ticker
+            if ticker in (
+                all_data.columns
+                .get_level_values(0)
+            ):
+
+                df = (
+                    all_data[ticker]
+                    .copy()
+                )
+
+            else:
+
+                return None
+
+        else:
+
+            df = all_data.copy()
+
+        required = [
             "Open",
             "High",
             "Low",
@@ -144,11 +405,13 @@ def download_stock(ticker):
             "Volume"
         ]
 
-        for column in columns:
-            if column not in df.columns:
+        for col in required:
+
+            if col not in df.columns:
+
                 return None
 
-        df = df[columns].copy()
+        df = df[required].copy()
 
         df = df.replace(
             [np.inf, -np.inf],
@@ -158,24 +421,23 @@ def download_stock(ticker):
         df = df.dropna()
 
         if len(df) < 60:
+
             return None
 
         return df
 
-    except Exception as e:
-
-        print(
-            f"{ticker} 下載失敗：{e}"
-        )
+    except Exception:
 
         return None
 
 
 # ============================================================
-# 技術面評分
+# 技術面
 # ============================================================
 
-def technical_score(df):
+def calculate_technical(
+    df
+):
 
     close = float(
         df["Close"].iloc[-1]
@@ -190,14 +452,17 @@ def technical_score(df):
     )
 
     if previous_close <= 0:
-        return 0, []
+
+        return None
 
     change_pct = (
-        close / previous_close - 1
+        close /
+        previous_close -
+        1
     ) * 100
 
     # -------------------------
-    # 成交量
+    # Volume
     # -------------------------
 
     avg5 = float(
@@ -212,65 +477,21 @@ def technical_score(df):
         .mean()
     )
 
-    if avg5 <= 0 or avg20 <= 0:
-        return 0, []
+    if avg5 <= 0:
 
-    volume_ratio_5 = volume / avg5
-    volume_ratio_20 = volume / avg20
+        return None
 
-    score = 0
-    reasons = []
+    volume5 = (
+        volume /
+        avg5
+    )
 
-    # 5日量
-    if volume_ratio_5 >= 3:
-        score += 20
-        reasons.append("5日均量3倍以上")
-
-    elif volume_ratio_5 >= 2:
-        score += 15
-        reasons.append("5日均量2倍以上")
-
-    elif volume_ratio_5 >= 1.5:
-        score += 8
-        reasons.append("5日量增")
-
-    # 20日量
-    if volume_ratio_20 >= 2:
-        score += 8
-        reasons.append("20日量爆發")
-
-    elif volume_ratio_20 >= 1.5:
-        score += 5
-        reasons.append("20日量增")
-
-    # -------------------------
-    # 漲幅
-    # -------------------------
-
-    if 3 <= change_pct <= 7:
-
-        score += 12
-        reasons.append("強勢上漲")
-
-    elif 1 <= change_pct < 3:
-
-        score += 5
-        reasons.append("溫和上漲")
-
-    elif 7 < change_pct <= 9:
-
-        score += 7
-        reasons.append("高檔強勢")
-
-    elif change_pct > 9:
-
-        score -= 15
-        reasons.append("單日漲幅過大")
-
-    elif change_pct < -3:
-
-        score -= 10
-        reasons.append("今日轉弱")
+    volume20 = (
+        volume /
+        avg20
+        if avg20 > 0
+        else 0
+    )
 
     # -------------------------
     # MA
@@ -304,28 +525,8 @@ def technical_score(df):
         .iloc[-2]
     )
 
-    if close > ma20:
-
-        score += 5
-        reasons.append("站上MA20")
-
-    if ma5 > ma20:
-
-        score += 5
-        reasons.append("MA5>MA20")
-
-    if ma20 > ma20_previous:
-
-        score += 5
-        reasons.append("MA20上升")
-
-    if ma20 > ma60:
-
-        score += 4
-        reasons.append("MA20>MA60")
-
     # -------------------------
-    # 突破20日高
+    # Breakout
     # -------------------------
 
     high20 = (
@@ -334,15 +535,12 @@ def technical_score(df):
         .max()
     )
 
-    breakout20 = close > high20
-
-    if breakout20:
-
-        score += 12
-        reasons.append("突破20日高")
+    breakout20 = (
+        close > high20
+    )
 
     # -------------------------
-    # 52週高點
+    # 52週高
     # -------------------------
 
     high252 = (
@@ -351,255 +549,228 @@ def technical_score(df):
         .max()
     )
 
-    if high252 > 0:
-
-        distance = (
-            (high252 - close)
-            / high252
-        ) * 100
-
-    else:
-
-        distance = 100
-
-    if distance <= 10:
-
-        score += 5
-        reasons.append("接近52週高")
-
-    elif distance <= 20:
-
-        score += 3
-        reasons.append("接近前高")
+    distance52 = (
+        (high252 - close)
+        / high252
+        * 100
+        if high252 > 0
+        else 100
+    )
 
     # -------------------------
     # 20日漲幅
     # -------------------------
-
-    close20 = (
-        df["Close"]
-        .iloc[-21]
-    )
-
-    gain20 = (
-        close / close20 - 1
-    ) * 100
-
-    if gain20 > 35:
-
-        score -= 20
-        reasons.append("20日漲幅過大")
-
-    elif gain20 > 25:
-
-        score -= 10
-        reasons.append("20日漲幅偏大")
-
-    elif 10 <= gain20 <= 25:
-
-        score += 5
-        reasons.append("20日趨勢強")
-
-    # -------------------------
-    # 成交金額
-    # -------------------------
-
-    turnover = close * volume
-
-    if turnover >= 40_000_000:
-        score += 5
-        reasons.append("成交金額達4,000萬")
-
-    elif turnover >= 20_000_000:
-        score += 3
-        reasons.append("成交金額達2,000萬")
-
-    return score, reasons
-
-
-# ============================================================
-# 防追高判斷
-# ============================================================
-
-def chase_filter(df):
-
-    close = float(
-        df["Close"].iloc[-1]
-    )
-
-    previous = float(
-        df["Close"].iloc[-2]
-    )
-
-    change = (
-        close / previous - 1
-    ) * 100
 
     close20 = float(
         df["Close"].iloc[-21]
     )
 
     gain20 = (
-        close / close20 - 1
+        close /
+        close20 -
+        1
     ) * 100
 
-    # 單日超過9%
-    if change > 9:
-
-        return (
-            False,
-            "🔴 單日漲幅過大，避免追高"
-        )
-
-    # 20日漲幅超過35%
-    if gain20 > 35:
-
-        return (
-            False,
-            "🔴 短線漲幅過大，避免追高"
-        )
-
-    return (
-        True,
-        ""
-    )
-
-
-# ============================================================
-# 個股分析
-# ============================================================
-
-def analyze_stock(ticker):
-
-    df = download_stock(ticker)
-
-    if df is None:
-        return None
-
-    technical_points, reasons = (
-        technical_score(df)
-    )
-
-    if technical_points < MIN_SCORE:
-        return None
-
-    can_watch, warning = (
-        chase_filter(df)
-    )
-
-    close = float(
-        df["Close"].iloc[-1]
-    )
-
-    previous = float(
-        df["Close"].iloc[-2]
-    )
-
-    change = (
-        close / previous - 1
-    ) * 100
-
-    volume = float(
-        df["Volume"].iloc[-1]
-    )
-
-    avg5 = float(
-        df["Volume"].iloc[-6:-1]
-        .mean()
-    )
-
-    avg20 = float(
-        df["Volume"].iloc[-21:-1]
-        .mean()
-    )
-
-    volume5 = (
-        volume / avg5
-        if avg5 > 0
-        else 0
-    )
-
-    volume20 = (
-        volume / avg20
-        if avg20 > 0
-        else 0
-    )
+    # -------------------------
+    # 成交金額
+    # -------------------------
 
     turnover = (
         close * volume
     )
 
-    high20 = (
-        df["High"]
-        .iloc[-21:-1]
-        .max()
-    )
-
-    breakout = close > high20
-
-    ma20 = (
-        df["Close"]
-        .rolling(20)
-        .mean()
-        .iloc[-1]
-    )
-
-    ma5 = (
-        df["Close"]
-        .rolling(5)
-        .mean()
-        .iloc[-1]
-    )
-
     # -------------------------
-    # 最終評等
+    # 技術評分
     # -------------------------
 
-    if not can_watch:
+    score = 0
 
-        status = warning
+    reasons = []
 
-    elif (
-        breakout
-        and volume5 >= 2
-        and 3 <= change <= 8
-    ):
+    # 5日量
+    if volume5 >= 3:
 
-        status = (
-            "🟢 爆量突破，列入強勢觀察"
-        )
+        score += 20
 
-    elif (
-        close > ma20
-        and ma5 > ma20
-        and volume5 >= 1.5
-    ):
-
-        status = (
-            "🟢 多頭趨勢，等待拉回"
+        reasons.append(
+            "5日量3倍以上"
         )
 
     elif volume5 >= 2:
 
-        status = (
-            "🟡 爆量異動，持續觀察"
+        score += 15
+
+        reasons.append(
+            "5日量2倍以上"
         )
 
-    else:
+    elif volume5 >= 1.5:
 
-        status = (
-            "⚪ 技術面偏強"
+        score += 8
+
+        reasons.append(
+            "5日量增"
+        )
+
+    # 20日量
+    if volume20 >= 2:
+
+        score += 8
+
+        reasons.append(
+            "20日量2倍以上"
+        )
+
+    elif volume20 >= 1.5:
+
+        score += 5
+
+        reasons.append(
+            "20日量增"
+        )
+
+    # 漲幅
+    if 3 <= change_pct <= 7:
+
+        score += 12
+
+        reasons.append(
+            "強勢上漲"
+        )
+
+    elif 1 <= change_pct < 3:
+
+        score += 5
+
+        reasons.append(
+            "溫和上漲"
+        )
+
+    elif 7 < change_pct <= 9:
+
+        score += 7
+
+        reasons.append(
+            "高檔強勢"
+        )
+
+    elif change_pct > 9:
+
+        score -= 15
+
+        reasons.append(
+            "漲幅過大"
+        )
+
+    # 突破
+    if breakout20:
+
+        score += 12
+
+        reasons.append(
+            "突破20日高"
+        )
+
+    # MA20
+    if close > ma20:
+
+        score += 5
+
+        reasons.append(
+            "站上MA20"
+        )
+
+    # MA5
+    if ma5 > ma20:
+
+        score += 5
+
+        reasons.append(
+            "MA5>MA20"
+        )
+
+    # MA20方向
+    if ma20 > ma20_previous:
+
+        score += 5
+
+        reasons.append(
+            "MA20上升"
+        )
+
+    # MA60
+    if ma20 > ma60:
+
+        score += 4
+
+        reasons.append(
+            "MA20>MA60"
+        )
+
+    # 52週高
+    if distance52 <= 10:
+
+        score += 5
+
+        reasons.append(
+            "接近52週高"
+        )
+
+    elif distance52 <= 20:
+
+        score += 3
+
+        reasons.append(
+            "接近前高"
+        )
+
+    # 20日趨勢
+    if 10 <= gain20 <= 25:
+
+        score += 5
+
+        reasons.append(
+            "20日趨勢強"
+        )
+
+    elif gain20 > 25:
+
+        score -= 10
+
+        reasons.append(
+            "20日漲幅偏大"
+        )
+
+    if gain20 > 35:
+
+        score -= 10
+
+        reasons.append(
+            "20日漲幅過大"
+        )
+
+    # 成交金額
+    if turnover >= 40_000_000:
+
+        score += 5
+
+        reasons.append(
+            "成交金額達4,000萬"
+        )
+
+    elif turnover >= 20_000_000:
+
+        score += 3
+
+        reasons.append(
+            "成交金額達2,000萬"
         )
 
     return {
 
-        "ticker": ticker,
-
-        "score": technical_points,
-
         "close": close,
 
-        "change": change,
+        "change_pct": change_pct,
 
         "volume5": volume5,
 
@@ -607,13 +778,383 @@ def analyze_stock(ticker):
 
         "turnover": turnover,
 
-        "breakout": breakout,
+        "breakout20": breakout20,
 
-        "status": status,
+        "distance52": distance52,
+
+        "gain20": gain20,
+
+        "ma5": ma5,
+
+        "ma20": ma20,
+
+        "ma60": ma60,
+
+        "technical_score": score,
 
         "reasons": reasons
-
     }
+
+
+# ============================================================
+# 產業強度
+# ============================================================
+#
+# 這裡採用「同批股票的20日漲幅排名」作為產業以外的
+# 市場強度代理。
+#
+# 真正產業分類資料若官方欄位存在，後續會再併入。
+# ============================================================
+
+def calculate_market_strength(
+    results
+):
+
+    if not results:
+
+        return results
+
+    gains = [
+        x["gain20"]
+        for x in results
+        if x.get("gain20") is not None
+    ]
+
+    if not gains:
+
+        return results
+
+    percentile = np.percentile(
+        gains,
+        70
+    )
+
+    for item in results:
+
+        gain20 = item["gain20"]
+
+        if gain20 >= percentile:
+
+            item["market_strength"] = 15
+
+            item["strength_text"] = (
+                "市場強勢Top30%"
+            )
+
+        else:
+
+            item["market_strength"] = 0
+
+            item["strength_text"] = (
+                "市場強度一般"
+            )
+
+    return results
+
+
+# ============================================================
+# 法人資料
+# ============================================================
+
+def get_tpex_institution():
+
+    try:
+
+        data = get_json(
+            TPEX_INSTITUTION_URL
+        )
+
+        df = pd.DataFrame(data)
+
+        return df
+
+    except Exception as e:
+
+        print(
+            f"⚠️ 上櫃法人資料取得失敗：{e}"
+        )
+
+        return pd.DataFrame()
+
+
+# ============================================================
+# 法人評分
+# ============================================================
+
+def calculate_institution_score(
+    stock_id,
+    institution_df
+):
+
+    if (
+        institution_df is None
+        or institution_df.empty
+    ):
+
+        return 0, "法人資料不足"
+
+    # 嘗試尋找股票代號欄位
+    code_col = None
+
+    for col in [
+        "SecuritiesCompanyCode",
+        "Code",
+        "證券代號",
+        "股票代號"
+    ]:
+
+        if col in institution_df.columns:
+
+            code_col = col
+
+            break
+
+    if code_col is None:
+
+        return 0, "法人資料不足"
+
+    rows = institution_df[
+        institution_df[
+            code_col
+        ].astype(str)
+        .str.strip()
+        == str(stock_id)
+    ]
+
+    if rows.empty:
+
+        return 0, "法人資料不足"
+
+    # 嘗試找合計買賣超欄位
+    possible_cols = [
+        "TotalNetBuySell",
+        "NetBuySell",
+        "三大法人買賣超股數",
+        "買賣超股數"
+    ]
+
+    value = None
+
+    for col in possible_cols:
+
+        if col in rows.columns:
+
+            value = rows.iloc[0][col]
+
+            break
+
+    if value is None:
+
+        return 0, "法人資料不足"
+
+    try:
+
+        value = float(
+            str(value)
+            .replace(",", "")
+        )
+
+    except Exception:
+
+        return 0, "法人資料不足"
+
+    if value > 0:
+
+        return 10, "三大法人買超"
+
+    elif value < 0:
+
+        return 0, "三大法人賣超"
+
+    return 3, "法人中性"
+
+
+# ============================================================
+# 基本面
+# ============================================================
+#
+# 使用 Yahoo 基本資料。
+# 為避免一次查詢數百家公司造成 API 過慢，
+# 只對技術分數較高的候選股查詢。
+# ============================================================
+
+def get_fundamental_score(
+    stock_id
+):
+
+    ticker = (
+        f"{stock_id}.TW"
+    )
+
+    try:
+
+        info = yf.Ticker(
+            ticker
+        ).info
+
+        score = 0
+
+        reasons = []
+
+        # -------------------------
+        # ROE
+        # -------------------------
+
+        roe = info.get(
+            "returnOnEquity"
+        )
+
+        if roe is not None:
+
+            roe_pct = roe * 100
+
+            if roe_pct >= 10:
+
+                score += 5
+
+                reasons.append(
+                    "ROE>10%"
+                )
+
+            elif roe_pct >= 5:
+
+                score += 2
+
+        # -------------------------
+        # EPS
+        # -------------------------
+
+        eps = info.get(
+            "trailingEps"
+        )
+
+        if eps is not None:
+
+            try:
+
+                eps = float(eps)
+
+                if eps > 0:
+
+                    score += 5
+
+                    reasons.append(
+                        "EPS為正"
+                    )
+
+            except Exception:
+
+                pass
+
+        # -------------------------
+        # 營收成長
+        # -------------------------
+
+        revenue_growth = info.get(
+            "revenueGrowth"
+        )
+
+        if revenue_growth is not None:
+
+            growth_pct = (
+                revenue_growth * 100
+            )
+
+            if growth_pct >= 20:
+
+                score += 5
+
+                reasons.append(
+                    "營收成長>20%"
+                )
+
+            elif growth_pct >= 10:
+
+                score += 3
+
+                reasons.append(
+                    "營收成長>10%"
+                )
+
+            elif growth_pct > 0:
+
+                score += 1
+
+        return score, reasons
+
+    except Exception:
+
+        return 0, []
+
+
+# ============================================================
+# 防追高
+# ============================================================
+
+def chase_penalty(
+    item
+):
+
+    penalty = 0
+
+    warning = ""
+
+    change = item[
+        "change_pct"
+    ]
+
+    gain20 = item[
+        "gain20"
+    ]
+
+    if change > 9:
+
+        penalty -= 15
+
+        warning = (
+            "🔴 今日漲幅過大"
+        )
+
+    elif gain20 > 35:
+
+        penalty -= 20
+
+        warning = (
+            "🔴 20日漲幅過大"
+        )
+
+    elif gain20 > 25:
+
+        penalty -= 10
+
+        warning = (
+            "🟠 短線漲幅偏大"
+        )
+
+    return penalty, warning
+
+
+# ============================================================
+# 等級
+# ============================================================
+
+def get_grade(
+    score
+):
+
+    if score >= 80:
+
+        return "🟢 S級"
+
+    if score >= 70:
+
+        return "🟡 A級"
+
+    if score >= 60:
+
+        return "🟠 B級"
+
+    return "⚪ 異動"
 
 
 # ============================================================
@@ -622,69 +1163,277 @@ def analyze_stock(ticker):
 
 def main():
 
-    print("=" * 60)
+    print("=" * 70)
 
     print(
-        "🚀 台股飆股雷達 4.0"
+        "🚀 台股飆股雷達 5.0"
     )
 
-    print("=" * 60)
+    print("=" * 70)
 
-    print(
-        f"股票池：{len(STOCKS)} 檔"
+    # -------------------------
+    # 1. 股票池
+    # -------------------------
+
+    stock_ids = (
+        build_stock_pool()
     )
+
+    if not stock_ids:
+
+        raise Exception(
+            "無法取得股票池"
+        )
+
+    # -------------------------
+    # 2. 歷史行情
+    # -------------------------
+
+    all_data = (
+        download_all_stocks(
+            stock_ids
+        )
+    )
+
+    if all_data is None:
+
+        raise Exception(
+            "無法取得歷史行情"
+        )
+
+    # -------------------------
+    # 3. 技術面
+    # -------------------------
 
     results = []
 
-    for index, ticker in enumerate(
-        STOCKS,
+    total = len(
+        stock_ids
+    )
+
+    for index, stock_id in enumerate(
+        stock_ids,
         1
     ):
 
         print(
-            f"[{index}/{len(STOCKS)}] "
-            f"分析 {ticker}"
+            f"[{index}/{total}] "
+            f"{stock_id}"
         )
 
-        try:
-
-            result = analyze_stock(
-                ticker
+        df = (
+            get_stock_dataframe(
+                all_data,
+                stock_id
             )
+        )
 
-            if result is not None:
+        if df is None:
 
-                results.append(
-                    result
-                )
+            continue
 
-        except Exception as e:
-
-            print(
-                f"{ticker} 分析失敗：{e}"
+        tech = (
+            calculate_technical(
+                df
             )
+        )
+
+        if tech is None:
+
+            continue
+
+        # 成交金額低於2000萬
+        # 不列為主要候選
+        if tech["turnover"] < MIN_TURNOVER:
+
+            continue
+
+        # 技術面至少30分
+        if tech[
+            "technical_score"
+        ] < 30:
+
+            continue
+
+        result = {
+
+            "stock_id": stock_id,
+
+            **tech
+
+        }
+
+        results.append(
+            result
+        )
+
+    print(
+        f"🎯 技術面候選："
+        f"{len(results)} 檔"
+    )
 
     # -------------------------
-    # 排名
+    # 4. 市場強度
     # -------------------------
 
+    results = (
+        calculate_market_strength(
+            results
+        )
+    )
+
+    # -------------------------
+    # 5. 法人資料
+    # -------------------------
+
+    institution_df = (
+        get_tpex_institution()
+    )
+
+    # -------------------------
+    # 6. 基本面
+    # -------------------------
+
+    # 只處理技術面排名較前者
     results.sort(
+        key=lambda x:
+        x["technical_score"],
+        reverse=True
+    )
+
+    candidates = results[:100]
+
+    final_results = []
+
+    for item in candidates:
+
+        stock_id = item[
+            "stock_id"
+        ]
+
+        # 法人
+        inst_score, inst_text = (
+            calculate_institution_score(
+                stock_id,
+                institution_df
+            )
+        )
+
+        # 基本面
+        fund_score, fund_reasons = (
+            get_fundamental_score(
+                stock_id
+            )
+        )
+
+        # 防追高
+        penalty, warning = (
+            chase_penalty(
+                item
+            )
+        )
+
+        final_score = (
+
+            item["technical_score"]
+
+            + item.get(
+                "market_strength",
+                0
+            )
+
+            + inst_score
+
+            + fund_score
+
+            + penalty
+        )
+
+        item[
+            "institution_score"
+        ] = inst_score
+
+        item[
+            "institution_text"
+        ] = inst_text
+
+        item[
+            "fundamental_score"
+        ] = fund_score
+
+        item[
+            "fundamental_reasons"
+        ] = fund_reasons
+
+        item[
+            "penalty"
+        ] = penalty
+
+        item[
+            "warning"
+        ] = warning
+
+        item[
+            "final_score"
+        ] = final_score
+
+        item[
+            "grade"
+        ] = get_grade(
+            final_score
+        )
+
+        final_results.append(
+            item
+        )
+
+    # -------------------------
+    # 7. 排名
+    # -------------------------
+
+    final_results.sort(
 
         key=lambda x: (
-            x["score"],
+
+            x["final_score"],
+
             x["volume5"],
-            x["change"]
+
+            x["change_pct"]
+
         ),
 
         reverse=True
     )
 
+    # -------------------------
+    # 8. Telegram
+    # -------------------------
+
     today = datetime.now()
+
+    strong = [
+        x
+        for x in final_results
+        if x["final_score"] >= 80
+    ]
+
+    watch = [
+        x
+        for x in final_results
+        if 70 <= x["final_score"] < 80
+    ]
+
+    abnormal = [
+        x
+        for x in final_results
+        if 60 <= x["final_score"] < 70
+    ]
 
     lines = []
 
     lines.append(
-        "🚨 台股飆股雷達 4.0"
+        "🚨 台股飆股雷達 5.0"
     )
 
     lines.append(
@@ -692,110 +1441,162 @@ def main():
     )
 
     lines.append(
-        f"🔎 掃描：{len(STOCKS)} 檔"
+        f"🔎 全市場股票池："
+        f"{len(stock_ids)} 檔"
     )
 
     lines.append(
-        f"🎯 符合條件：{len(results)} 檔"
+        f"🎯 技術面候選："
+        f"{len(results)} 檔"
     )
 
     lines.append("")
 
-    if not results:
-
-        lines.append(
-            "⚪ 今日沒有符合條件的股票。"
-        )
-
-    else:
-
-        for rank, item in enumerate(
-            results[:TOP_N],
-            1
-        ):
-
-            ticker = (
-                item["ticker"]
-                .replace(".TW", "")
-                .replace(".TWO", "")
-            )
-
-            turnover_billion = (
-                item["turnover"]
-                / 100_000_000
-            )
-
-            lines.append(
-                f"🏆 第{rank}名｜{ticker}"
-            )
-
-            lines.append(
-                f"⭐ {item['score']}分"
-            )
-
-            lines.append(
-                f"💰 股價 {item['close']:.2f}"
-                f"｜📈 {item['change']:+.2f}%"
-            )
-
-            lines.append(
-                f"🔥 5日量 "
-                f"{item['volume5']:.1f}倍"
-                f"｜20日量 "
-                f"{item['volume20']:.1f}倍"
-            )
-
-            lines.append(
-                f"💵 成交金額 "
-                f"{turnover_billion:.2f}億"
-            )
-
-            lines.append(
-                "📌 "
-                + "、".join(
-                    item["reasons"]
-                )
-            )
-
-            lines.append(
-                f"➡️ {item['status']}"
-            )
-
-            lines.append("")
+    # -------------------------
+    # S級
+    # -------------------------
 
     lines.append(
         "━━━━━━━━━━━━━━"
     )
 
     lines.append(
-        "📌 使用方式："
+        "🟢 S級｜80分以上"
     )
 
     lines.append(
-        "60分以上＝值得研究"
+        "━━━━━━━━━━━━━━"
+    )
+
+    if not strong:
+
+        lines.append(
+            "今日沒有S級股票"
+        )
+
+    else:
+
+        for rank, item in enumerate(
+            strong[:TOP_STRONG],
+            1
+        ):
+
+            lines.extend(
+                format_stock(
+                    rank,
+                    item
+                )
+            )
+
+    # -------------------------
+    # A級
+    # -------------------------
+
+    lines.append("")
+
+    lines.append(
+        "━━━━━━━━━━━━━━"
     )
 
     lines.append(
-        "80分以上＝強勢關注"
+        "🟡 A級｜70～79分"
     )
 
     lines.append(
-        "90分以上＝極強異動"
+        "━━━━━━━━━━━━━━"
+    )
+
+    if not watch:
+
+        lines.append(
+            "今日沒有A級股票"
+        )
+
+    else:
+
+        for rank, item in enumerate(
+            watch[:TOP_WATCH],
+            1
+        ):
+
+            lines.extend(
+                format_stock(
+                    rank,
+                    item
+                )
+            )
+
+    # -------------------------
+    # B級
+    # -------------------------
+
+    lines.append("")
+
+    lines.append(
+        "━━━━━━━━━━━━━━"
+    )
+
+    lines.append(
+        "🟠 B級｜60～69分"
+    )
+
+    lines.append(
+        "━━━━━━━━━━━━━━"
+    )
+
+    if not abnormal:
+
+        lines.append(
+            "今日沒有B級股票"
+        )
+
+    else:
+
+        for rank, item in enumerate(
+            abnormal[:TOP_ABNORMAL],
+            1
+        ):
+
+            lines.extend(
+                format_stock(
+                    rank,
+                    item
+                )
+            )
+
+    # -------------------------
+    # 結尾
+    # -------------------------
+
+    lines.append("")
+
+    lines.append(
+        "━━━━━━━━━━━━━━"
+    )
+
+    lines.append(
+        "📌 5.0核心："
+    )
+
+    lines.append(
+        "量能＋技術＋市場強度＋"
+        "法人＋基本面＋防追高"
     )
 
     lines.append("")
 
     lines.append(
-        "⚠️ 本工具為技術面選股工具，"
-        "僅供研究參考，不代表買進建議。"
+        "⚠️ 僅供研究參考，"
+        "不代表買進建議。"
     )
 
     message = "\n".join(
         lines
     )
 
-    print("\n")
-    print(message)
+    print(
+        "\n" + message
+    )
 
     send_telegram(
         message
@@ -804,6 +1605,138 @@ def main():
     print(
         "\n✅ Telegram 發送成功"
     )
+
+
+# ============================================================
+# Telegram 個股格式
+# ============================================================
+
+def format_stock(
+    rank,
+    item
+):
+
+    stock_id = item[
+        "stock_id"
+    ]
+
+    score = item[
+        "final_score"
+    ]
+
+    close = item[
+        "close"
+    ]
+
+    change = item[
+        "change_pct"
+    ]
+
+    volume5 = item[
+        "volume5"
+    ]
+
+    turnover = (
+        item["turnover"]
+        / 100_000_000
+    )
+
+    reasons = list(
+        item.get(
+            "reasons",
+            []
+        )
+    )
+
+    reasons.extend(
+        item.get(
+            "fundamental_reasons",
+            []
+        )
+    )
+
+    lines = []
+
+    lines.append(
+        f"🏆 {rank}. {stock_id}｜"
+        f"{item['grade']}｜{score}分"
+    )
+
+    lines.append(
+        f"💰 股價 {close:.2f}"
+        f"｜📈 {change:+.2f}%"
+    )
+
+    lines.append(
+        f"🔥 5日量 "
+        f"{volume5:.1f}倍"
+        f"｜💵 成交 "
+        f"{turnover:.2f}億"
+    )
+
+    lines.append(
+        f"🏭 {item.get('strength_text', '市場強度一般')}"
+    )
+
+    lines.append(
+        f"💼 {item.get('institution_text', '法人資料不足')}"
+    )
+
+    if reasons:
+
+        # 避免訊息過長
+        unique_reasons = list(
+            dict.fromkeys(
+                reasons
+            )
+        )
+
+        lines.append(
+            "📌 "
+            + "、".join(
+                unique_reasons[:8]
+            )
+        )
+
+    if item.get(
+        "warning"
+    ):
+
+        lines.append(
+            f"⚠️ {item['warning']}"
+        )
+
+    else:
+
+        if (
+            item["breakout20"]
+            and item["volume5"] >= 2
+        ):
+
+            lines.append(
+                "➡️ 🟢 爆量突破，值得觀察"
+            )
+
+        elif (
+            item["ma5"] >
+            item["ma20"]
+            and item["ma20"] >
+            item["ma60"]
+        ):
+
+            lines.append(
+                "➡️ 🟢 多頭排列"
+            )
+
+        else:
+
+            lines.append(
+                "➡️ 🟡 持續觀察"
+            )
+
+    lines.append("")
+
+    return lines
 
 
 # ============================================================
