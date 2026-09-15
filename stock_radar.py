@@ -406,15 +406,13 @@ def technical_score(df):
 
     turnover = close * volume
 
-   if turnover >= 40_000_000:
+    if turnover >= 40_000_000:
+        score += 5
+        reasons.append("成交金額達4,000萬")
 
-    score += 5
-    reasons.append("成交金額達4,000萬")
-
-elif turnover >= 20_000_000:
-
-    score += 3
-    reasons.append("成交金額達2,000萬")
+    elif turnover >= 20_000_000:
+        score += 3
+        reasons.append("成交金額達2,000萬")
 
     return score, reasons
 
