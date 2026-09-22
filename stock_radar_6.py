@@ -1521,7 +1521,7 @@ def send_telegram_report(results, scanned):
             f"📡 <b>台股飆股雷達 {VERSION}</b>\n"
             f"📅 {now_text()}\n\n"
             f"🔎 掃描：{scanned} 檔\n"
-            f"❌ 今日沒有符合6.0條件的股票\n\n"
+            f"❌ 今日沒有符合目前選股條件的股票\n\n"
             f"條件：\n"
             f"• 今日漲幅 ≥ 3%\n"
             f"• 量 ≥ 5日均量 × 1.8\n"
@@ -1543,20 +1543,43 @@ def send_telegram_report(results, scanned):
         f"━━━━━━━━━━━━━━\n"
     )
 
-    # Telegram 單則訊息避免過長
+    # Telegram：TOP 10 整合成一則訊息
+    # 若符合條件不足 10 檔，就全部顯示。
     top_results = results[:10]
 
+    messages = []
     for r in top_results:
+        messages.append(stock_message(r))
 
-        message = (
-            header
-            + stock_message(r)
-            + "\n━━━━━━━━━━━━━━\n"
+    combined_message = (
+        header
+        + "\n".join(
+            f"🏆 <b>第{i}名</b>\n{msg}"
+            for i, msg in enumerate(messages, 1)
         )
+        + "\n━━━━━━━━━━━━━━"
+    )
 
-        telegram_send(message)
+    # Telegram 單則訊息上限約 4096 字元，預留安全空間自動分段。
+    max_length = 3900
 
-        time.sleep(0.5)
+    if len(combined_message) <= max_length:
+        telegram_send(combined_message)
+    else:
+        current_message = header
+
+        for i, msg in enumerate(messages, 1):
+            section = f"🏆 <b>第{i}名</b>\n{msg}\n━━━━━━━━━━━━━━"
+
+            if len(current_message) + len(section) + 2 <= max_length:
+                current_message += "\n" + section
+            else:
+                telegram_send(current_message)
+                time.sleep(0.5)
+                current_message = header + "\n" + section
+
+        if current_message != header:
+            telegram_send(current_message)
 
 
 # ============================================================
