@@ -3,11 +3,11 @@ name: Taiwan Stock Radar 6.0
 on:
   # 台灣時間週一～週五 15:00
   # GitHub Actions 使用 UTC
-  # 台灣 UTC+8，所以 15:00 = UTC 07:00
+  # UTC 07:00 = 台灣 15:00
   schedule:
     - cron: '0 7 * * 1-5'
 
-  # 可以在 GitHub Actions 手動執行
+  # GitHub Actions 手動執行
   workflow_dispatch:
 
 permissions:
@@ -20,7 +20,7 @@ jobs:
     steps:
 
       # ==============================
-      # 1. 下載 GitHub Repository
+      # 1. 下載 Repository
       # ==============================
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -29,13 +29,12 @@ jobs:
       # 2. 設定 Python
       # ==============================
       - name: Setup Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-          cache: 'pip'
 
       # ==============================
-      # 3. 安裝套件
+      # 3. 安裝 Python 套件
       # ==============================
       - name: Install dependencies
         run: |
