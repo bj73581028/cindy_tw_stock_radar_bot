@@ -42,7 +42,7 @@ warnings.filterwarnings("ignore")
 # 基本設定
 # ============================================================
 
-VERSION = "6.0"
+VERSION = "6.1"
 
 TW_TZ = ZoneInfo("Asia/Taipei")
 
@@ -54,6 +54,8 @@ MIN_VOLUME_RATIO = 1.8
 MIN_TURNOVER = 20_000_000
 
 TOP_INDUSTRY_PERCENT = 30
+MAX_MA10_DEVIATION = 10.0
+MAX_MA20_DEVIATION = 15.0
 
 MAX_TICKERS = 2006
 
@@ -694,6 +696,7 @@ def analyze_technical(df):
     )
 
     # MA
+    ma10 = close.rolling(10).mean()
     ma5 = close.rolling(5).mean()
     ma20 = close.rolling(20).mean()
     ma60 = close.rolling(60).mean()
@@ -823,6 +826,16 @@ def analyze_technical(df):
     # ========================================================
 
     ma20_value = ma20.iloc[-1]
+
+    ma10_value = ma10.iloc[-1]
+    ma10_deviation = ((current_price - ma10_value) / ma10_value * 100) if pd.notna(ma10_value) and ma10_value > 0 else np.nan
+    ma20_deviation = ((current_price - ma20_value) / ma20_value * 100) if pd.notna(ma20_value) and ma20_value > 0 else np.nan
+
+    # 6.1 低乖離過濾：排除股價向上遠離 MA10 / MA20 的股票
+    if pd.notna(ma10_deviation) and ma10_deviation > MAX_MA10_DEVIATION:
+        return None
+    if pd.notna(ma20_deviation) and ma20_deviation > MAX_MA20_DEVIATION:
+        return None
     ma60_value = ma60.iloc[-1]
 
     ma_score = 0
@@ -910,6 +923,9 @@ def analyze_technical(df):
         "turnover": turnover,
 
         "ma5": ma5.iloc[-1],
+        "ma10": ma10_value,
+        "ma10_deviation": ma10_deviation,
+        "ma20_deviation": ma20_deviation,
         "ma20": ma20_value,
         "ma60": ma60_value,
 
@@ -1494,27 +1510,23 @@ def stock_message(r):
 
 
 # ============================================================
-# ============================================================
 # Telegram 總訊息
 # ============================================================
 
 def send_telegram_report(results, scanned):
 
-    # --------------------------------------------------------
-    # 沒有入選股票
-    # --------------------------------------------------------
     if not results:
 
         message = (
             f"📡 <b>台股飆股雷達 {VERSION}</b>\n"
             f"📅 {now_text()}\n\n"
             f"🔎 掃描：{scanned} 檔\n"
-            f"❌ 今日沒有符合 6.0 條件的股票\n\n"
-            f"<b>今日選股條件：</b>\n"
+            f"❌ 今日沒有符合6.0條件的股票\n\n"
+            f"條件：\n"
             f"• 今日漲幅 ≥ 3%\n"
-            f"• 今日成交量 ≥ 5日平均量 × 1.8\n"
-            f"• 成交金額 > 2,000萬元\n"
-            f"• 產業排名 Top 30%\n"
+            f"• 量 ≥ 5日均量 × 1.8\n"
+            f"• 成交金額 > 2,000萬\n"
+            f"• 產業 Top30%\n"
             f"• 基本面良好\n"
             f"• KD / RSI5 / MACD DIF 不明顯向下"
         )
@@ -1523,45 +1535,29 @@ def send_telegram_report(results, scanned):
 
         return
 
-    # --------------------------------------------------------
-    # 最多顯示前10名
-    # --------------------------------------------------------
+    header = (
+        f"🚨 <b>台股飆股雷達 {VERSION}</b>\n"
+        f"📅 {now_text()}\n"
+        f"🔎 掃描：{scanned} 檔\n"
+        f"🎯 入選：{len(results)} 檔\n"
+        f"━━━━━━━━━━━━━━\n"
+    )
+
+    # Telegram 單則訊息避免過長
     top_results = results[:10]
 
-    # --------------------------------------------------------
-    # 標題
-    # --------------------------------------------------------
-    message_parts = [
-        f"🚨 <b>台股飆股雷達 {VERSION}</b>",
-        f"📅 {now_text()}",
-        f"🔎 掃描：{scanned} 檔",
-        f"🎯 符合條件：{len(results)} 檔",
-        f"🏆 顯示前：{len(top_results)} 檔",
-        "━━━━━━━━━━━━━━"
-    ]
-
-    # --------------------------------------------------------
-    # 將前10名全部放在同一則訊息
-    # --------------------------------------------------------
     for r in top_results:
 
-        message_parts.append(
-            stock_message(r)
+        message = (
+            header
+            + stock_message(r)
+            + "\n━━━━━━━━━━━━━━\n"
         )
 
-        message_parts.append(
-            "━━━━━━━━━━━━━━"
-        )
+        telegram_send(message)
 
-    # --------------------------------------------------------
-    # 組成單一 Telegram 訊息
-    # --------------------------------------------------------
-    message = "\n".join(message_parts)
+        time.sleep(0.5)
 
-    # --------------------------------------------------------
-    # 一次發送
-    # --------------------------------------------------------
-    telegram_send(message)
 
 # ============================================================
 # CSV
