@@ -1,0 +1,67 @@
+name: Taiwan Stock Radar 6.0
+
+on:
+  # 台灣時間週一～週五 15:00
+  # GitHub Actions 使用 UTC
+  # 台灣 UTC+8，所以 15:00 = UTC 07:00
+  schedule:
+    - cron: '0 7 * * 1-5'
+
+  # 可以在 GitHub Actions 手動執行
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  radar:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ==============================
+      # 1. 下載 GitHub Repository
+      # ==============================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ==============================
+      # 2. 設定 Python
+      # ==============================
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      # ==============================
+      # 3. 安裝套件
+      # ==============================
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy requests yfinance
+
+      # ==============================
+      # 4. 執行台股飆股雷達 6.0
+      # ==============================
+      - name: Run Taiwan Stock Radar 6.0
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python stock_radar_6.py
+
+      # ==============================
+      # 5. 保存 Dashboard
+      # ==============================
+      - name: Upload Radar Dashboard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: taiwan-stock-radar-6-dashboard
+          path: |
+            dashboard.html
+            radar_results.csv
+            radar_results.json
+          if-no-files-found: ignore
