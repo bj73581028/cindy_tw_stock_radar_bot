@@ -19,7 +19,6 @@ jobs:
       # ======================================================
 
       - name: Checkout
-
         uses: actions/checkout@v4
 
 
@@ -28,11 +27,8 @@ jobs:
       # ======================================================
 
       - name: Setup Python
-
         uses: actions/setup-python@v5
-
         with:
-
           python-version: "3.11"
 
 
@@ -41,9 +37,7 @@ jobs:
       # ======================================================
 
       - name: Install requests
-
         run: |
-
           pip install requests
 
 
@@ -55,16 +49,32 @@ jobs:
 
         env:
 
-          # ⚠️ 重點：
-          # 使用「原本 Backtest」的 Telegram Bot
-          # 不再使用 TELEGRAM_BOT_TOKEN
+          # ==================================================
+          # Taiwan Stock Radar 6.1 Backtest Telegram Bot
+          #
+          # GitHub Secret 名稱：
+          # BACKTEST_TELEGRAM_BOT_TOKEN
+          #
+          # Python 使用的環境變數：
+          # TELEGRAM_BOT_TOKEN
+          # ==================================================
 
-          BACKTEST_TELEGRAM_BOT_TOKEN:
+          TELEGRAM_BOT_TOKEN:
             ${{ secrets.BACKTEST_TELEGRAM_BOT_TOKEN }}
 
-          # GitHub PAT
+
+          # ==================================================
+          # GitHub Personal Access Token
+          # 用來觸發原本的 Backtest Workflow
+          # ==================================================
+
           MY_GITHUB_TOKEN:
             ${{ secrets.MY_GITHUB_TOKEN }}
+
+
+          # ==================================================
+          # GitHub Repository
+          # ==================================================
 
           GITHUB_OWNER:
             bj73581028
@@ -72,6 +82,14 @@ jobs:
           GITHUB_REPO:
             cindy_tw_stock_radar_bot
 
-        run: |
 
+          # ==================================================
+          # repository_dispatch event type
+          # ==================================================
+
+          GITHUB_EVENT_TYPE:
+            backtest
+
+
+        run: |
           python telegram_trigger.py
