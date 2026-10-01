@@ -1,4 +1,4 @@
-name: Taiwan Stock Radar 6.0
+name: Taiwan Stock Radar 6.1
 
 on:
   # 台灣時間週一～週五 15:00
@@ -42,9 +42,9 @@ jobs:
           pip install pandas numpy requests yfinance
 
       # ==============================
-      # 4. 執行台股飆股雷達 6.0
+      # 4. 執行台股飆股雷達 6.1
       # ==============================
-      - name: Run Taiwan Stock Radar 6.0
+      - name: Run Taiwan Stock Radar 6.1
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
