@@ -23,12 +23,9 @@
 # ============================================================
 
 import os
-import json
 import time
-import math
 import warnings
 import requests
-from datetime import datetime
 
 import numpy as np
 import pandas as pd
@@ -37,6 +34,8 @@ import yfinance as yf
 warnings.filterwarnings("ignore")
 
 VERSION = "6.1-BACKTEST"
+
+
 # ============================================================
 # Telegram 回測 Bot
 # ============================================================
@@ -50,6 +49,8 @@ BACKTEST_TELEGRAM_CHAT_ID = os.getenv(
     "BACKTEST_TELEGRAM_CHAT_ID",
     ""
 )
+
+
 # ============================================================
 # 6.1 條件
 # ============================================================
@@ -61,11 +62,15 @@ MIN_TURNOVER = 20_000_000
 MAX_MA10_DEVIATION = 8.0
 MAX_MA20_DEVIATION = 12.0
 
+
 # ============================================================
 # GitHub Actions 環境變數
 # ============================================================
 
-MODE = os.getenv("MODE", "SINGLE").upper()
+MODE = os.getenv(
+    "MODE",
+    "SINGLE"
+).upper()
 
 STOCK_CODES = os.getenv(
     "STOCK_CODES",
@@ -82,17 +87,18 @@ END_DATE = os.getenv(
     "2026-09-30"
 ).strip()
 
+
 # ============================================================
 # 股票代號處理
 # ============================================================
 
 def normalize_code(code):
+
     code = str(code).strip()
 
     if not code:
         return ""
 
-    # 已經是 Yahoo 格式
     if code.endswith(".TW") or code.endswith(".TWO"):
         return code
 
@@ -100,6 +106,7 @@ def normalize_code(code):
 
 
 def get_yahoo_symbol(code):
+
     code = normalize_code(code)
 
     if code.endswith(".TW") or code.endswith(".TWO"):
@@ -109,38 +116,29 @@ def get_yahoo_symbol(code):
 
 
 def get_codes():
-    """
-    ALL：
-        先使用環境變數 STOCK_CODES。
-        若沒有指定，使用預設股票池。
-
-    SINGLE：
-        只回測一檔。
-
-    MULTI：
-        逗號分隔多檔。
-    """
 
     if MODE == "SINGLE":
-        return [normalize_code(STOCK_CODES.split(",")[0])]
+
+        return [
+            normalize_code(
+                STOCK_CODES.split(",")[0]
+            )
+        ]
 
     if MODE == "MULTI":
+
         return [
             normalize_code(x)
             for x in STOCK_CODES.split(",")
             if normalize_code(x)
         ]
 
-    # --------------------------------------------------------
+    # ========================================================
     # ALL 模式
-    #
-    # 這裡先使用常見大型/熱門股票池作為回測測試用。
-    #
-    # 真正完整全市場回測，下一階段再接你的
-    # TWSE + TPEx 股票清單。
-    # --------------------------------------------------------
+    # ========================================================
 
     default_codes = [
+
         "1101", "1102", "1216",
         "1301", "1303",
         "1402", "1476",
@@ -181,6 +179,7 @@ def get_codes():
 # ============================================================
 
 def calculate_rsi(series, period=5):
+
     delta = series.diff()
 
     gain = delta.clip(lower=0)
@@ -191,16 +190,21 @@ def calculate_rsi(series, period=5):
 
     rs = avg_gain / avg_loss.replace(0, np.nan)
 
-    rsi = 100 - (100 / (1 + rs))
+    rsi = 100 - (
+        100 / (1 + rs)
+    )
 
     return rsi
 
 
 def calculate_kd(df, period=9):
+
     low_n = df["Low"].rolling(period).min()
     high_n = df["High"].rolling(period).max()
 
-    denominator = (high_n - low_n).replace(0, np.nan)
+    denominator = (
+        high_n - low_n
+    ).replace(0, np.nan)
 
     rsv = (
         (df["Close"] - low_n)
@@ -222,6 +226,7 @@ def calculate_kd(df, period=9):
 
 
 def calculate_macd(series):
+
     ema12 = series.ewm(
         span=12,
         adjust=False
@@ -248,14 +253,23 @@ def calculate_macd(series):
 # 取得歷史資料
 # ============================================================
 
-def download_stock(code, start_date, end_date):
+def download_stock(
+    code,
+    start_date,
+    end_date
+):
 
     symbol = get_yahoo_symbol(code)
 
-    # 技術指標需要前置資料
-    start_dt = pd.to_datetime(start_date) - pd.Timedelta(days=120)
+    start_dt = (
+        pd.to_datetime(start_date)
+        - pd.Timedelta(days=120)
+    )
 
-    end_dt = pd.to_datetime(end_date) + pd.Timedelta(days=35)
+    end_dt = (
+        pd.to_datetime(end_date)
+        + pd.Timedelta(days=35)
+    )
 
     print(
         f"下載 {symbol}："
@@ -282,17 +296,29 @@ def download_stock(code, start_date, end_date):
         return None
 
     if df is None or df.empty:
-        print(f"⚠️ {code} 沒有資料")
+
+        print(
+            f"⚠️ {code} 沒有資料"
+        )
+
         return None
 
     # --------------------------------------------------------
-    # yfinance 有時會產生 MultiIndex
+    # yfinance MultiIndex
     # --------------------------------------------------------
 
-    if isinstance(df.columns, pd.MultiIndex):
+    if isinstance(
+        df.columns,
+        pd.MultiIndex
+    ):
 
         try:
-            df.columns = df.columns.get_level_values(0)
+
+            df.columns = (
+                df.columns
+                .get_level_values(0)
+            )
+
         except Exception:
             pass
 
@@ -307,14 +333,17 @@ def download_stock(code, start_date, end_date):
     for col in required:
 
         if col not in df.columns:
+
             print(
                 f"⚠️ {code} 缺少欄位：{col}"
             )
+
             return None
 
     df = df[required].copy()
 
     for col in required:
+
         df[col] = pd.to_numeric(
             df[col],
             errors="coerce"
@@ -323,9 +352,11 @@ def download_stock(code, start_date, end_date):
     df = df.dropna()
 
     if len(df) < 80:
+
         print(
             f"⚠️ {code} 歷史資料不足"
         )
+
         return None
 
     return df
@@ -343,16 +374,27 @@ def prepare_indicators(df):
     # 均線
     # --------------------------------------------------------
 
-    df["MA5"] = df["Close"].rolling(5).mean()
-    df["MA10"] = df["Close"].rolling(10).mean()
-    df["MA20"] = df["Close"].rolling(20).mean()
+    df["MA5"] = (
+        df["Close"]
+        .rolling(5)
+        .mean()
+    )
+
+    df["MA10"] = (
+        df["Close"]
+        .rolling(10)
+        .mean()
+    )
+
+    df["MA20"] = (
+        df["Close"]
+        .rolling(20)
+        .mean()
+    )
 
     # --------------------------------------------------------
-    # 5日平均成交量
-    #
-    # 非常重要：
-    # 使用「前5個完整交易日」
-    # 不把今天成交量算進平均值。
+    # 前5個完整交易日平均成交量
+    # 不包含今天
     # --------------------------------------------------------
 
     df["VOL5_PREV"] = (
@@ -364,6 +406,7 @@ def prepare_indicators(df):
 
     # --------------------------------------------------------
     # 今日量比
+    # 今日成交量 ÷ 前5日平均成交量
     # --------------------------------------------------------
 
     df["VOLUME_RATIO"] = (
@@ -425,7 +468,7 @@ def prepare_indicators(df):
     )
 
     # --------------------------------------------------------
-    # MACD DIF 12/26
+    # MACD
     # --------------------------------------------------------
 
     (
@@ -443,15 +486,10 @@ def prepare_indicators(df):
 # 趨勢判斷
 # ============================================================
 
-def is_up_or_flat(series, tolerance=0.0):
-    """
-    判斷最近兩個數值：
-    今天 >= 昨天
-    就視為向上／平穩。
-
-    這符合目前 6.1：
-    不要求一定交叉。
-    """
+def is_up_or_flat(
+    series,
+    tolerance=0.0
+):
 
     if len(series) < 2:
         return False
@@ -469,7 +507,10 @@ def is_up_or_flat(series, tolerance=0.0):
 # 6.1 條件判斷
 # ============================================================
 
-def check_6_1(df, idx):
+def check_6_1(
+    df,
+    idx
+):
 
     if idx < 30:
         return None
@@ -497,21 +538,21 @@ def check_6_1(df, idx):
         return None
 
     # --------------------------------------------------------
-    # 2. 今日量 >= 前5日平均量 × 1.8
+    # 2. 今日成交量 >= 前5日平均成交量 × 1.8
     # --------------------------------------------------------
 
     if row["VOLUME_RATIO"] < MIN_VOLUME_RATIO:
         return None
 
     # --------------------------------------------------------
-    # 3. 成交金額 > 2,000萬
+    # 3. 成交金額 > 2,000萬元
     # --------------------------------------------------------
 
     if row["TURNOVER"] <= MIN_TURNOVER:
         return None
 
     # --------------------------------------------------------
-    # 4. MA10乖離
+    # 4. MA10 正乖離 <= 8%
     # --------------------------------------------------------
 
     if pd.isna(row["MA10_DEV"]):
@@ -521,7 +562,7 @@ def check_6_1(df, idx):
         return None
 
     # --------------------------------------------------------
-    # 5. MA20乖離
+    # 5. MA20 正乖離 <= 12%
     # --------------------------------------------------------
 
     if pd.isna(row["MA20_DEV"]):
@@ -534,7 +575,11 @@ def check_6_1(df, idx):
     # 6. KD 9K 向上／平穩
     # --------------------------------------------------------
 
-    k_values = df["K"].iloc[:idx + 1].dropna()
+    k_values = (
+        df["K"]
+        .iloc[:idx + 1]
+        .dropna()
+    )
 
     if len(k_values) < 2:
         return None
@@ -546,7 +591,11 @@ def check_6_1(df, idx):
     # 7. RSI 5T 向上／平穩
     # --------------------------------------------------------
 
-    rsi_values = df["RSI5"].iloc[:idx + 1].dropna()
+    rsi_values = (
+        df["RSI5"]
+        .iloc[:idx + 1]
+        .dropna()
+    )
 
     if len(rsi_values) < 2:
         return None
@@ -555,10 +604,14 @@ def check_6_1(df, idx):
         return None
 
     # --------------------------------------------------------
-    # 8. MACD DIF 12/26 向上／平穩
+    # 8. MACD DIF 向上／平穩
     # --------------------------------------------------------
 
-    dif_values = df["DIF"].iloc[:idx + 1].dropna()
+    dif_values = (
+        df["DIF"]
+        .iloc[:idx + 1]
+        .dropna()
+    )
 
     if len(dif_values) < 2:
         return None
@@ -567,22 +620,68 @@ def check_6_1(df, idx):
         return None
 
     return {
+
         "date": df.index[idx],
-        "close": float(row["Close"]),
-        "gain": float(row["GAIN"]),
-        "volume": float(row["Volume"]),
-        "vol5": float(row["VOL5_PREV"]),
-        "volume_ratio": float(row["VOLUME_RATIO"]),
-        "turnover": float(row["TURNOVER"]),
-        "ma10": float(row["MA10"]),
-        "ma20": float(row["MA20"]),
-        "ma10_dev": float(row["MA10_DEV"]),
-        "ma20_dev": float(row["MA20_DEV"]),
-        "k": float(row["K"]),
-        "d": float(row["D"]),
-        "rsi5": float(row["RSI5"]),
-        "dif": float(row["DIF"]),
-        "dea": float(row["DEA"]),
+
+        "close": float(
+            row["Close"]
+        ),
+
+        "gain": float(
+            row["GAIN"]
+        ),
+
+        "volume": float(
+            row["Volume"]
+        ),
+
+        "vol5": float(
+            row["VOL5_PREV"]
+        ),
+
+        "volume_ratio": float(
+            row["VOLUME_RATIO"]
+        ),
+
+        "turnover": float(
+            row["TURNOVER"]
+        ),
+
+        "ma10": float(
+            row["MA10"]
+        ),
+
+        "ma20": float(
+            row["MA20"]
+        ),
+
+        "ma10_dev": float(
+            row["MA10_DEV"]
+        ),
+
+        "ma20_dev": float(
+            row["MA20_DEV"]
+        ),
+
+        "k": float(
+            row["K"]
+        ),
+
+        "d": float(
+            row["D"]
+        ),
+
+        "rsi5": float(
+            row["RSI5"]
+        ),
+
+        "dif": float(
+            row["DIF"]
+        ),
+
+        "dea": float(
+            row["DEA"]
+        )
     }
 
 
@@ -608,29 +707,39 @@ def calculate_forward_returns(
 
     for h in horizons:
 
-        future_idx = signal_idx + h
+        future_idx = (
+            signal_idx + h
+        )
 
         if future_idx >= len(df):
 
-            result[f"return_{h}d"] = np.nan
+            result[
+                f"return_{h}d"
+            ] = np.nan
 
         else:
 
             future_close = float(
-                df.iloc[future_idx]["Close"]
+                df.iloc[
+                    future_idx
+                ]["Close"]
             )
 
-            result[f"return_{h}d"] = (
+            result[
+                f"return_{h}d"
+            ] = (
                 future_close
                 / signal_price
                 - 1
             ) * 100
 
     # --------------------------------------------------------
-    # 後續20交易日最大漲幅
+    # 後續20交易日最大漲跌
     # --------------------------------------------------------
 
-    future_start = signal_idx + 1
+    future_start = (
+        signal_idx + 1
+    )
 
     future_end = min(
         signal_idx + 20,
@@ -639,13 +748,19 @@ def calculate_forward_returns(
 
     if future_start <= future_end:
 
-        future_high = df.iloc[
-            future_start:future_end + 1
-        ]["High"].max()
+        future_high = (
+            df.iloc[
+                future_start:
+                future_end + 1
+            ]["High"].max()
+        )
 
-        future_low = df.iloc[
-            future_start:future_end + 1
-        ]["Low"].min()
+        future_low = (
+            df.iloc[
+                future_start:
+                future_end + 1
+            ]["Low"].min()
+        )
 
         result["max_gain_20d"] = (
             future_high
@@ -675,7 +790,9 @@ def backtest_stock(code):
 
     print("")
     print("=" * 70)
-    print(f"開始回測：{code}")
+    print(
+        f"開始回測：{code}"
+    )
     print("=" * 70)
 
     df = download_stock(
@@ -689,10 +806,6 @@ def backtest_stock(code):
 
     df = prepare_indicators(df)
 
-    # --------------------------------------------------------
-    # 只在正式回測期間產生訊號
-    # --------------------------------------------------------
-
     start_ts = pd.Timestamp(
         START_DATE
     )
@@ -703,15 +816,24 @@ def backtest_stock(code):
 
     results = []
 
-    for idx in range(len(df)):
+    for idx in range(
+        len(df)
+    ):
 
         current_date = df.index[idx]
 
-        # yfinance index 通常是 Timestamp
-        if hasattr(current_date, "tz_localize"):
+        if hasattr(
+            current_date,
+            "tz_localize"
+        ):
 
             try:
-                current_date = current_date.tz_localize(None)
+
+                current_date = (
+                    current_date
+                    .tz_localize(None)
+                )
+
             except Exception:
                 pass
 
@@ -729,39 +851,81 @@ def backtest_stock(code):
         if signal is None:
             continue
 
-        forward = calculate_forward_returns(
-            df,
-            idx,
-            signal["close"]
+        forward = (
+            calculate_forward_returns(
+                df,
+                idx,
+                signal["close"]
+            )
         )
 
         result = {
+
             "code": code,
-            "date": current_date.strftime("%Y-%m-%d"),
-            "price": signal["close"],
-            "gain": signal["gain"],
-            "volume": signal["volume"],
-            "vol5": signal["vol5"],
-            "volume_ratio": signal["volume_ratio"],
-            "turnover": signal["turnover"],
-            "ma10": signal["ma10"],
-            "ma20": signal["ma20"],
-            "ma10_dev": signal["ma10_dev"],
-            "ma20_dev": signal["ma20_dev"],
-            "k": signal["k"],
-            "d": signal["d"],
-            "rsi5": signal["rsi5"],
-            "dif": signal["dif"],
-            "dea": signal["dea"],
+
+            "date":
+                current_date.strftime(
+                    "%Y-%m-%d"
+                ),
+
+            "price":
+                signal["close"],
+
+            "gain":
+                signal["gain"],
+
+            "volume":
+                signal["volume"],
+
+            "vol5":
+                signal["vol5"],
+
+            "volume_ratio":
+                signal["volume_ratio"],
+
+            "turnover":
+                signal["turnover"],
+
+            "ma10":
+                signal["ma10"],
+
+            "ma20":
+                signal["ma20"],
+
+            "ma10_dev":
+                signal["ma10_dev"],
+
+            "ma20_dev":
+                signal["ma20_dev"],
+
+            "k":
+                signal["k"],
+
+            "d":
+                signal["d"],
+
+            "rsi5":
+                signal["rsi5"],
+
+            "dif":
+                signal["dif"],
+
+            "dea":
+                signal["dea"]
         }
 
-        result.update(forward)
+        result.update(
+            forward
+        )
 
-        results.append(result)
+        results.append(
+            result
+        )
 
     print(
         f"✅ {code}："
-        f"找到 {len(results)} 次 6.1 訊號"
+        f"找到 {len(results)} 次 "
+        f"6.1 訊號"
     )
 
     return results
@@ -771,77 +935,132 @@ def backtest_stock(code):
 # 總結
 # ============================================================
 
-def create_summary(results_df):
+def create_summary(
+    results_df
+):
 
     if results_df.empty:
 
         return pd.DataFrame([{
+
             "signals": 0,
-            "avg_return_1d": np.nan,
-            "avg_return_3d": np.nan,
-            "avg_return_5d": np.nan,
-            "avg_return_10d": np.nan,
-            "avg_return_20d": np.nan,
-            "win_rate_1d": np.nan,
-            "win_rate_3d": np.nan,
-            "win_rate_5d": np.nan,
-            "win_rate_10d": np.nan,
-            "win_rate_20d": np.nan,
-            "avg_max_gain_20d": np.nan,
-            "avg_max_loss_20d": np.nan,
+
+            "avg_return_1d":
+                np.nan,
+
+            "avg_return_3d":
+                np.nan,
+
+            "avg_return_5d":
+                np.nan,
+
+            "avg_return_10d":
+                np.nan,
+
+            "avg_return_20d":
+                np.nan,
+
+            "win_rate_1d":
+                np.nan,
+
+            "win_rate_3d":
+                np.nan,
+
+            "win_rate_5d":
+                np.nan,
+
+            "win_rate_10d":
+                np.nan,
+
+            "win_rate_20d":
+                np.nan,
+
+            "avg_max_gain_20d":
+                np.nan,
+
+            "avg_max_loss_20d":
+                np.nan
         }])
 
     summary = {
-        "signals": len(results_df),
+
+        "signals":
+            len(results_df),
 
         "avg_return_1d":
-            results_df["return_1d"].mean(),
+            results_df[
+                "return_1d"
+            ].mean(),
 
         "avg_return_3d":
-            results_df["return_3d"].mean(),
+            results_df[
+                "return_3d"
+            ].mean(),
 
         "avg_return_5d":
-            results_df["return_5d"].mean(),
+            results_df[
+                "return_5d"
+            ].mean(),
 
         "avg_return_10d":
-            results_df["return_10d"].mean(),
+            results_df[
+                "return_10d"
+            ].mean(),
 
         "avg_return_20d":
-            results_df["return_20d"].mean(),
+            results_df[
+                "return_20d"
+            ].mean(),
 
         "win_rate_1d":
             (
-                results_df["return_1d"] > 0
+                results_df[
+                    "return_1d"
+                ] > 0
             ).mean() * 100,
 
         "win_rate_3d":
             (
-                results_df["return_3d"] > 0
+                results_df[
+                    "return_3d"
+                ] > 0
             ).mean() * 100,
 
         "win_rate_5d":
             (
-                results_df["return_5d"] > 0
+                results_df[
+                    "return_5d"
+                ] > 0
             ).mean() * 100,
 
         "win_rate_10d":
             (
-                results_df["return_10d"] > 0
+                results_df[
+                    "return_10d"
+                ] > 0
             ).mean() * 100,
 
         "win_rate_20d":
             (
-                results_df["return_20d"] > 0
+                results_df[
+                    "return_20d"
+                ] > 0
             ).mean() * 100,
 
         "avg_max_gain_20d":
-            results_df["max_gain_20d"].mean(),
+            results_df[
+                "max_gain_20d"
+            ].mean(),
 
         "avg_max_loss_20d":
-            results_df["max_loss_20d"].mean(),
+            results_df[
+                "max_loss_20d"
+            ].mean()
     }
 
-    return pd.DataFrame([summary])
+    return pd.DataFrame([
+        summary
+    ])
 
 
 # ============================================================
@@ -853,7 +1072,9 @@ def create_dashboard(
     summary_df
 ):
 
-    filename = "backtest_dashboard.html"
+    filename = (
+        "backtest_dashboard.html"
+    )
 
     if results_df.empty:
 
@@ -863,9 +1084,17 @@ def create_dashboard(
         <meta charset="utf-8">
         <title>6.1 Backtest</title>
         </head>
+
         <body>
-        <h1>台股飆股雷達 6.1 回測</h1>
-        <h2>沒有符合條件的訊號</h2>
+
+        <h1>
+        台股飆股雷達 6.1 回測
+        </h1>
+
+        <h2>
+        沒有符合條件的訊號
+        </h2>
+
         </body>
         </html>
         """
@@ -876,11 +1105,16 @@ def create_dashboard(
 
         html = f"""
         <!DOCTYPE html>
+
         <html>
+
         <head>
+
         <meta charset="utf-8">
 
-        <title>台股飆股雷達 6.1 回測</title>
+        <title>
+        台股飆股雷達 6.1 回測
+        </title>
 
         <style>
 
@@ -907,7 +1141,8 @@ def create_dashboard(
             background: white;
         }}
 
-        th, td {{
+        th,
+        td {{
             border: 1px solid #ddd;
             padding: 7px;
             text-align: right;
@@ -923,7 +1158,9 @@ def create_dashboard(
 
         <body>
 
-        <h1>📊 台股飆股雷達 6.1 回測</h1>
+        <h1>
+        📊 台股飆股雷達 6.1 回測
+        </h1>
 
         <div class="card">
 
@@ -938,7 +1175,8 @@ def create_dashboard(
         </p>
 
         <p>
-        期間：{START_DATE}
+        期間：
+        {START_DATE}
         ～ {END_DATE}
         </p>
 
@@ -950,7 +1188,9 @@ def create_dashboard(
 
         <p>
         訊號數：
-        <strong>{int(row["signals"])}</strong>
+        <strong>
+        {int(row["signals"])}
+        </strong>
         </p>
 
         <p>
@@ -1029,6 +1269,7 @@ def create_dashboard(
         </div>
 
         </body>
+
         </html>
         """
 
@@ -1041,8 +1282,171 @@ def create_dashboard(
         f.write(html)
 
     print(
-        f"✅ Dashboard 已建立：{filename}"
+        f"✅ Dashboard 已建立："
+        f"{filename}"
     )
+
+
+# ============================================================
+# Telegram 發送
+# ============================================================
+
+def send_telegram(message):
+
+    print("")
+    print("=" * 60)
+    print("📨 Telegram 發送中...")
+    print(
+        "BOT TOKEN 是否存在：",
+        bool(
+            BACKTEST_TELEGRAM_BOT_TOKEN
+        )
+    )
+    print(
+        "CHAT ID 是否存在：",
+        bool(
+            BACKTEST_TELEGRAM_CHAT_ID
+        )
+    )
+    print("=" * 60)
+
+    if not BACKTEST_TELEGRAM_BOT_TOKEN:
+
+        print(
+            "❌ 沒有設定 "
+            "BACKTEST_TELEGRAM_BOT_TOKEN"
+        )
+
+        return False
+
+    if not BACKTEST_TELEGRAM_CHAT_ID:
+
+        print(
+            "❌ 沒有設定 "
+            "BACKTEST_TELEGRAM_CHAT_ID"
+        )
+
+        return False
+
+    url = (
+        "https://api.telegram.org/bot"
+        f"{BACKTEST_TELEGRAM_BOT_TOKEN}"
+        "/sendMessage"
+    )
+
+    payload = {
+
+        "chat_id":
+            BACKTEST_TELEGRAM_CHAT_ID,
+
+        "text":
+            message,
+
+        "parse_mode":
+            "HTML"
+    }
+
+    try:
+
+        response = requests.post(
+            url,
+            data=payload,
+            timeout=30
+        )
+
+        print(
+            "📡 Telegram HTTP Status：",
+            response.status_code
+        )
+
+        if response.ok:
+
+            print(
+                "✅ Telegram 回測結果已送出"
+            )
+
+            return True
+
+        print(
+            "❌ Telegram 發送失敗"
+        )
+
+        print(
+            "Telegram API 回應：",
+            response.text
+        )
+
+    except Exception as e:
+
+        print(
+            "❌ Telegram 發送錯誤：",
+            repr(e)
+        )
+
+    return False
+
+
+# ============================================================
+# 建立 Telegram 回測訊息
+# ============================================================
+
+def build_telegram_message(
+    results_df,
+    summary_df
+):
+
+    if not results_df.empty:
+
+        row = summary_df.iloc[0]
+
+        message = f"""
+<b>📊 台股飆股雷達 6.1 回測</b>
+
+🔎 模式：{MODE}
+📌 股票：{STOCK_CODES}
+📅 期間：{START_DATE} ～ {END_DATE}
+
+<b>📈 平均報酬</b>
+
++1日：{row["avg_return_1d"]:.2f}%
++3日：{row["avg_return_3d"]:.2f}%
++5日：{row["avg_return_5d"]:.2f}%
++10日：{row["avg_return_10d"]:.2f}%
++20日：{row["avg_return_20d"]:.2f}%
+
+<b>🎯 上漲機率</b>
+
++1日：{row["win_rate_1d"]:.2f}%
++3日：{row["win_rate_3d"]:.2f}%
++5日：{row["win_rate_5d"]:.2f}%
++10日：{row["win_rate_10d"]:.2f}%
++20日：{row["win_rate_20d"]:.2f}%
+
+<b>📊 其他統計</b>
+
+符合訊號：{int(row["signals"])} 次
+
+20日平均最大漲幅：
+{row["avg_max_gain_20d"]:.2f}%
+
+20日平均最大跌幅：
+{row["avg_max_loss_20d"]:.2f}%
+
+📁 詳細結果已產生 CSV 與 Dashboard。
+"""
+
+    else:
+
+        message = f"""
+<b>📊 台股飆股雷達 6.1 回測</b>
+
+📌 股票：{STOCK_CODES}
+📅 期間：{START_DATE} ～ {END_DATE}
+
+⚠️ 此期間沒有符合 6.1 條件的訊號。
+"""
+
+    return message
 
 
 # ============================================================
@@ -1053,27 +1457,53 @@ def main():
 
     print("")
     print("=" * 70)
-    print("📊 台股飆股雷達 6.1 BACKTEST")
+    print(
+        "📊 台股飆股雷達 6.1 BACKTEST"
+    )
     print("=" * 70)
 
-    print(f"版本：{VERSION}")
-    print(f"模式：{MODE}")
-    print(f"股票：{STOCK_CODES}")
-    print(f"開始：{START_DATE}")
-    print(f"結束：{END_DATE}")
+    print(
+        f"版本：{VERSION}"
+    )
+
+    print(
+        f"模式：{MODE}"
+    )
+
+    print(
+        f"股票：{STOCK_CODES}"
+    )
+
+    print(
+        f"開始：{START_DATE}"
+    )
+
+    print(
+        f"結束：{END_DATE}"
+    )
 
     print("")
     print("6.1條件：")
-    print(f"漲幅 >= {MIN_GAIN}%")
-    print(f"量比 >= {MIN_VOLUME_RATIO}x")
+
+    print(
+        f"漲幅 >= {MIN_GAIN}%"
+    )
+
+    print(
+        f"量比 >= "
+        f"{MIN_VOLUME_RATIO}x"
+    )
+
     print(
         f"成交金額 > "
         f"{MIN_TURNOVER:,}"
     )
+
     print(
         f"MA10乖離 <= "
         f"{MAX_MA10_DEVIATION}%"
     )
+
     print(
         f"MA20乖離 <= "
         f"{MAX_MA20_DEVIATION}%"
@@ -1083,12 +1513,16 @@ def main():
 
     print("")
     print(
-        f"準備回測 {len(codes)} 檔股票"
+        f"準備回測 "
+        f"{len(codes)} 檔股票"
     )
 
     all_results = []
 
-    for i, code in enumerate(codes, 1):
+    for i, code in enumerate(
+        codes,
+        1
+    ):
 
         print(
             f"\n[{i}/{len(codes)}] "
@@ -1097,8 +1531,8 @@ def main():
 
         try:
 
-            results = backtest_stock(
-                code
+            results = (
+                backtest_stock(code)
             )
 
             all_results.extend(
@@ -1108,15 +1542,15 @@ def main():
         except Exception as e:
 
             print(
-                f"❌ {code} 發生錯誤：{e}"
+                f"❌ {code} 發生錯誤："
+                f"{e}"
             )
 
-        # 避免過度頻繁請求 Yahoo
         time.sleep(0.5)
 
-    # --------------------------------------------------------
+    # ========================================================
     # 建立結果 DataFrame
-    # --------------------------------------------------------
+    # ========================================================
 
     results_df = pd.DataFrame(
         all_results
@@ -1124,20 +1558,22 @@ def main():
 
     if not results_df.empty:
 
-        results_df = results_df.sort_values(
-            by=[
-                "date",
-                "volume_ratio"
-            ],
-            ascending=[
-                True,
-                False
-            ]
+        results_df = (
+            results_df.sort_values(
+                by=[
+                    "date",
+                    "volume_ratio"
+                ],
+                ascending=[
+                    True,
+                    False
+                ]
+            )
         )
 
-    # --------------------------------------------------------
+    # ========================================================
     # CSV
-    # --------------------------------------------------------
+    # ========================================================
 
     results_file = (
         "backtest_results.csv"
@@ -1151,12 +1587,13 @@ def main():
 
     print("")
     print(
-        f"✅ 詳細結果：{results_file}"
+        f"✅ 詳細結果："
+        f"{results_file}"
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # Summary
-    # --------------------------------------------------------
+    # ========================================================
 
     summary_df = create_summary(
         results_df
@@ -1173,78 +1610,28 @@ def main():
     )
 
     print(
-        f"✅ 摘要結果：{summary_file}"
+        f"✅ 摘要結果："
+        f"{summary_file}"
     )
 
-    # --------------------------------------------------------
+    # ========================================================
     # Dashboard
-    # --------------------------------------------------------
+    # ========================================================
 
     create_dashboard(
         results_df,
         summary_df
     )
-# ============================================================
-# Telegram 發送回測結果
-# ============================================================
-print("====================================")
-print("📨 準備發送 Telegram 回測結果")
-print("BOT TOKEN 是否存在：", bool(BACKTEST_TELEGRAM_BOT_TOKEN))
-print("CHAT ID 是否存在：", bool(BACKTEST_TELEGRAM_CHAT_ID))
-print("====================================")
-def send_telegram(message):
 
-    if not BACKTEST_TELEGRAM_BOT_TOKEN:
-        print("⚠️ 沒有設定 BACKTEST_TELEGRAM_BOT_TOKEN")
-        return False
-
-    if not BACKTEST_TELEGRAM_CHAT_ID:
-        print("⚠️ 沒有設定 BACKTEST_TELEGRAM_CHAT_ID")
-        return False
-
-    url = (
-        f"https://api.telegram.org/bot"
-        f"{BACKTEST_TELEGRAM_BOT_TOKEN}/sendMessage"
-    )
-
-    payload = {
-        "chat_id": BACKTEST_TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "HTML"
-    }
-
-    try:
-
-        response = requests.post(
-            url,
-            data=payload,
-            timeout=30
-        )
-
-        if response.ok:
-            print("✅ Telegram 回測結果已送出")
-            return True
-
-        print(
-            "❌ Telegram 發送失敗：",
-            response.text
-        )
-
-    except Exception as e:
-
-        print(
-            "❌ Telegram 發送錯誤：",
-            e
-        )
-
-    return False
-    # --------------------------------------------------------
+    # ========================================================
     # 終端顯示
-    # --------------------------------------------------------
+    # ========================================================
 
     print("")
     print("=" * 70)
-    print("📊 6.1 回測完成")
+    print(
+        "📊 6.1 回測完成"
+    )
     print("=" * 70)
 
     if not results_df.empty:
@@ -1284,67 +1671,42 @@ def send_telegram(message):
     else:
 
         print(
-            "⚠️ 此期間沒有符合 6.1 "
-            "條件的股票。"
+            "⚠️ 此期間沒有符合 "
+            "6.1 條件的股票。"
         )
 
     print("")
     print("輸出檔案：")
-    print("1. backtest_results.csv")
-    print("2. backtest_summary.csv")
-    print("3. backtest_dashboard.html")
+    print(
+        "1. backtest_results.csv"
+    )
+    print(
+        "2. backtest_summary.csv"
+    )
+    print(
+        "3. backtest_dashboard.html"
+    )
+
     # ========================================================
-    # Telegram 回測摘要
+    # Telegram
     # ========================================================
 
-    if not results_df.empty:
+    message = (
+        build_telegram_message(
+            results_df,
+            summary_df
+        )
+    )
 
-        row = summary_df.iloc[0]
+    send_telegram(
+        message
+    )
 
-        message = f"""
-<b>📊 台股飆股雷達 6.1 回測</b>
 
-🔎 模式：{MODE}
-📌 股票：{STOCK_CODES}
-📅 期間：{START_DATE} ～ {END_DATE}
-
-<b>📈 平均報酬</b>
-
-+1日：{row["avg_return_1d"]:.2f}%
-+3日：{row["avg_return_3d"]:.2f}%
-+5日：{row["avg_return_5d"]:.2f}%
-+10日：{row["avg_return_10d"]:.2f}%
-+20日：{row["avg_return_20d"]:.2f}%
-
-<b>🎯 上漲機率</b>
-
-+1日：{row["win_rate_1d"]:.2f}%
-+3日：{row["win_rate_3d"]:.2f}%
-+5日：{row["win_rate_5d"]:.2f}%
-+10日：{row["win_rate_10d"]:.2f}%
-+20日：{row["win_rate_20d"]:.2f}%
-
-<b>📊 其他統計</b>
-
-符合訊號：{int(row["signals"])} 次
-20日平均最大漲幅：{row["avg_max_gain_20d"]:.2f}%
-20日平均最大跌幅：{row["avg_max_loss_20d"]:.2f}%
-
-📁 詳細結果已產生 CSV 與 Dashboard。
-"""
-
-    else:
-
-        message = f"""
-<b>📊 台股飆股雷達 6.1 回測</b>
-
-📌 股票：{STOCK_CODES}
-📅 期間：{START_DATE} ～ {END_DATE}
-
-⚠️ 此期間沒有符合 6.1 條件的訊號。
-"""
-
-    send_telegram(message)
+# ============================================================
+# 程式入口
+# ============================================================
 
 if __name__ == "__main__":
+
     main()
