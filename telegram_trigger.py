@@ -2,26 +2,53 @@
 # Taiwan Stock Radar 6.1
 # Telegram Backtest Trigger
 #
+# 正式版
+#
 # 功能：
-# 1. 從「Taiwan Stock Radar 6.1 Backtest」Telegram Bot
-#    讀取「回測2435」等指令
 #
-# 2. 自動解析：
-#       回測2435
-#       回測3563
-#       回測3563,2435,2485
+# 1. Telegram 指令：
 #
-# 3. 觸發 GitHub Actions repository_dispatch
+#    回測2435
+#    回測3563
+#    回測2330
+#    回測2485
 #
-# 4. 每一筆 Telegram 訊息只處理一次
-#    避免同一筆訊息重複觸發回測
+#    → SINGLE
 #
-# 5. Offset 儲存在 telegram_offset.txt
+#
+# 2. Telegram 多檔指令：
+#
+#    回測2435,2330,3563
+#
+#    → MULTI
+#
+#
+# 3. Telegram 全市場指令：
+#
+#    回測全部
+#
+#    → ALL
+#
+#
+# 4. 不限定特定股票
+#
+#    任何 4 碼股票代號都可以指定
+#
+#
+# 5. 每一筆 Telegram 訊息只處理一次
+#
+# 6. 使用 telegram_offset.txt
+#    避免同一筆訊息重複執行
+#
+# 7. GitHub Actions 使用 repository_dispatch
+#
+# 8. GitHub Dispatch 成功後才更新 Offset
+#
 # ============================================================
+
 
 import os
 import re
-import json
 import requests
 
 
@@ -34,31 +61,40 @@ TELEGRAM_BOT_TOKEN = os.getenv(
     ""
 )
 
+
 MY_GITHUB_TOKEN = os.getenv(
     "MY_GITHUB_TOKEN",
     ""
 )
+
 
 GITHUB_OWNER = os.getenv(
     "GITHUB_OWNER",
     "bj73581028"
 )
 
+
 GITHUB_REPO = os.getenv(
     "GITHUB_REPO",
     "cindy_tw_stock_radar_bot"
 )
+
 
 GITHUB_EVENT_TYPE = os.getenv(
     "GITHUB_EVENT_TYPE",
     "backtest"
 )
 
+
+# ============================================================
+# Offset 檔案
+# ============================================================
+
 OFFSET_FILE = "telegram_offset.txt"
 
 
 # ============================================================
-# GitHub API
+# GitHub Dispatch API
 # ============================================================
 
 GITHUB_DISPATCH_URL = (
@@ -85,9 +121,11 @@ TELEGRAM_API = (
 def print_header():
 
     print("=" * 70)
+
     print(
         "🤖 Taiwan Stock Radar 6.1 Telegram Trigger"
     )
+
     print("=" * 70)
 
 
@@ -97,7 +135,9 @@ def print_header():
 
 def load_offset():
 
-    if not os.path.exists(OFFSET_FILE):
+    if not os.path.exists(
+        OFFSET_FILE
+    ):
 
         print(
             "🆕 找不到 telegram_offset.txt"
@@ -116,6 +156,10 @@ def load_offset():
             content = f.read().strip()
 
         if not content:
+
+            print(
+                "⚠️ Offset 檔案是空的"
+            )
 
             return None
 
@@ -253,14 +297,40 @@ def parse_command(text):
 
     text = text.strip()
 
-    # --------------------------------------------------------
-    # 只接受：
+
+    # ========================================================
+    # ALL
+    #
+    # 支援：
+    #
+    # 回測全部
+    # 回測 全部
+    # ========================================================
+
+    if re.fullmatch(
+        r"回測\s*全部",
+        text
+    ):
+
+        return {
+            "mode": "ALL",
+            "codes": []
+        }
+
+
+    # ========================================================
+    # 股票指令
+    #
+    # 支援：
     #
     # 回測2435
     # 回測 2435
-    # 回測3563,2435,2485
-    # 回測 3563, 2435, 2485
-    # --------------------------------------------------------
+    #
+    # 回測2435,2330
+    # 回測 2435, 2330
+    #
+    # 不限制特定股票
+    # ========================================================
 
     pattern = (
         r"^回測\s*"
@@ -268,16 +338,20 @@ def parse_command(text):
         r"(?:\s*,\s*[0-9]{4})*)$"
     )
 
+
     match = re.match(
         pattern,
         text
     )
 
+
     if not match:
 
         return None
 
+
     codes_text = match.group(1)
+
 
     codes = [
         x.strip()
@@ -285,50 +359,57 @@ def parse_command(text):
         if x.strip()
     ]
 
+
     if not codes:
 
         return None
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # 去除同一指令內重複股票
     #
     # 例如：
+    #
     # 回測2435,2435,3563
     #
     # 變成：
-    # ['2435', '3563']
-    # --------------------------------------------------------
+    #
+    # 2435,3563
+    # ========================================================
 
     unique_codes = []
+
 
     for code in codes:
 
         if code not in unique_codes:
 
-            unique_codes.append(code)
+            unique_codes.append(
+                code
+            )
 
-    return unique_codes
+
+    # ========================================================
+    # 判斷模式
+    # ========================================================
+
+    if len(unique_codes) == 1:
+
+        mode = "SINGLE"
+
+    else:
+
+        mode = "MULTI"
+
+
+    return {
+        "mode": mode,
+        "codes": unique_codes
+    }
 
 
 # ============================================================
-# 判斷回測模式
-# ============================================================
-
-def get_mode(codes):
-
-    if len(codes) == 1:
-
-        return "SINGLE"
-
-    if len(codes) > 1:
-
-        return "MULTI"
-
-    return "SINGLE"
-
-
-# ============================================================
-# 發送 Telegram 回覆
+# Telegram 回覆
 # ============================================================
 
 def send_telegram_message(
@@ -340,12 +421,16 @@ def send_telegram_message(
         f"{TELEGRAM_API}/sendMessage"
     )
 
+
     payload = {
 
-        "chat_id": chat_id,
+        "chat_id":
+            chat_id,
 
-        "text": message
+        "text":
+            message
     }
+
 
     try:
 
@@ -355,10 +440,12 @@ def send_telegram_message(
             timeout=30
         )
 
+
         print(
             "📡 Telegram 回覆 HTTP Status：",
             response.status_code
         )
+
 
         if response.ok:
 
@@ -368,13 +455,16 @@ def send_telegram_message(
 
             return True
 
+
         print(
             "❌ Telegram 訊息發送失敗"
         )
 
+
         print(
             response.text
         )
+
 
     except Exception as e:
 
@@ -383,11 +473,12 @@ def send_telegram_message(
             repr(e)
         )
 
+
     return False
 
 
 # ============================================================
-# 觸發 GitHub Actions
+# 觸發 GitHub Actions Backtest
 # ============================================================
 
 def trigger_github_backtest(
@@ -404,6 +495,27 @@ def trigger_github_backtest(
 
         return False
 
+
+    # ========================================================
+    # ALL 模式
+    # ========================================================
+
+    if mode == "ALL":
+
+        stock_codes = ""
+
+
+    else:
+
+        stock_codes = ",".join(
+            codes
+        )
+
+
+    # ========================================================
+    # GitHub repository_dispatch
+    # ========================================================
+
     payload = {
 
         "event_type":
@@ -415,12 +527,13 @@ def trigger_github_backtest(
                 mode,
 
             "stock_codes":
-                ",".join(codes),
+                stock_codes,
 
             "chat_id":
                 str(chat_id)
         }
     }
+
 
     headers = {
 
@@ -434,6 +547,7 @@ def trigger_github_backtest(
             "2022-11-28"
     }
 
+
     try:
 
         response = requests.post(
@@ -443,10 +557,16 @@ def trigger_github_backtest(
             timeout=30
         )
 
+
         print(
             "📡 GitHub Dispatch HTTP Status：",
             response.status_code
         )
+
+
+        # ====================================================
+        # 204 = repository_dispatch 成功
+        # ====================================================
 
         if response.status_code == 204:
 
@@ -456,13 +576,16 @@ def trigger_github_backtest(
 
             return True
 
+
         print(
             "❌ GitHub Dispatch 失敗"
         )
 
+
         print(
             response.text
         )
+
 
     except Exception as e:
 
@@ -470,6 +593,7 @@ def trigger_github_backtest(
             "❌ GitHub Dispatch 錯誤：",
             repr(e)
         )
+
 
     return False
 
@@ -484,60 +608,88 @@ def process_update(update):
         "update_id"
     )
 
+
     message = update.get(
         "message"
     )
 
+
+    # ========================================================
+    # 沒有 message
+    # ========================================================
+
     if not message:
 
         return True
+
+
+    # ========================================================
+    # 取得文字
+    # ========================================================
 
     text = message.get(
         "text",
         ""
     ).strip()
 
+
+    # ========================================================
+    # Chat
+    # ========================================================
+
     chat = message.get(
         "chat",
         {}
     )
 
+
     chat_id = chat.get(
         "id"
     )
 
+
     if not chat_id:
+
+        print(
+            "⚠️ 找不到 Chat ID"
+        )
 
         return True
 
+
     print("")
     print("-" * 70)
+
 
     print(
         f"📩 收到訊息：{text}"
     )
 
+
     print(
         f"🆔 Chat ID：{chat_id}"
     )
+
 
     print(
         f"🆔 Update ID：{update_id}"
     )
 
-    # --------------------------------------------------------
-    # 解析指令
-    # --------------------------------------------------------
 
-    codes = parse_command(
+    # ========================================================
+    # 解析指令
+    # ========================================================
+
+    command = parse_command(
         text
     )
 
-    # --------------------------------------------------------
-    # 不是回測指令
-    # --------------------------------------------------------
 
-    if codes is None:
+    # ========================================================
+    # 無效指令
+    # ========================================================
+
+    if command is None:
 
         print(
             "ℹ️ 不是有效的回測指令，跳過"
@@ -545,25 +697,37 @@ def process_update(update):
 
         return True
 
-    # --------------------------------------------------------
-    # 判斷模式
-    # --------------------------------------------------------
 
-    mode = get_mode(
-        codes
-    )
+    # ========================================================
+    # 取得模式
+    # ========================================================
+
+    mode = command["mode"]
+
+    codes = command["codes"]
+
 
     print(
         f"📊 回測模式：{mode}"
     )
 
-    print(
-        f"📌 股票代號：{codes}"
-    )
 
-    # --------------------------------------------------------
-    # 先觸發 GitHub
-    # --------------------------------------------------------
+    if mode == "ALL":
+
+        print(
+            "📌 股票：全市場"
+        )
+
+    else:
+
+        print(
+            f"📌 股票代號：{codes}"
+        )
+
+
+    # ========================================================
+    # 觸發 GitHub
+    # ========================================================
 
     github_ok = (
         trigger_github_backtest(
@@ -573,54 +737,90 @@ def process_update(update):
         )
     )
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # GitHub 成功
-    # --------------------------------------------------------
+    # ========================================================
 
     if github_ok:
+
+
+        if mode == "ALL":
+
+            stock_text = (
+                "🌐 全市場"
+            )
+
+        else:
+
+            stock_text = (
+                ", ".join(codes)
+            )
+
 
         message_text = (
             "✅ 已收到你的回測指令\n\n"
             f"📊 模式：{mode}\n"
-            f"📌 股票：{', '.join(codes)}\n\n"
+            f"📌 股票：{stock_text}\n\n"
             "🚀 Backtest 已開始執行\n"
             "完成後會回傳回測結果。"
         )
 
+
         send_telegram_message(
             chat_id,
             message_text
         )
+
 
         return True
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # GitHub 失敗
-    # --------------------------------------------------------
+    # ========================================================
+
+    message_text = (
+        "❌ 回測啟動失敗\n\n"
+        f"📊 模式：{mode}\n"
+    )
+
+
+    if mode == "ALL":
+
+        message_text += (
+            "📌 股票：全市場\n\n"
+        )
 
     else:
 
-        message_text = (
-            "❌ 回測啟動失敗\n\n"
-            f"📊 模式：{mode}\n"
-            f"📌 股票：{', '.join(codes)}\n\n"
-            "請檢查 GitHub Token 或 Workflow 設定。"
+        message_text += (
+            f"📌 股票："
+            f"{', '.join(codes)}\n\n"
         )
 
-        send_telegram_message(
-            chat_id,
-            message_text
-        )
 
-        # ----------------------------------------------------
-        # 非常重要：
-        #
-        # GitHub 失敗時不要保存 offset。
-        #
-        # 這樣下一次 Trigger 可以重新嘗試。
-        # ----------------------------------------------------
+    message_text += (
+        "請檢查 GitHub Token 或 "
+        "Workflow 設定。"
+    )
 
-        return False
+
+    send_telegram_message(
+        chat_id,
+        message_text
+    )
+
+
+    # ========================================================
+    # GitHub 失敗
+    #
+    # 不更新 Offset
+    #
+    # 下一次可以重新嘗試
+    # ========================================================
+
+    return False
 
 
 # ============================================================
@@ -631,9 +831,10 @@ def main():
 
     print_header()
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # Token 檢查
-    # --------------------------------------------------------
+    # ========================================================
 
     if not TELEGRAM_BOT_TOKEN:
 
@@ -643,26 +844,29 @@ def main():
 
         return
 
+
     print(
         "✅ Token 設定正常"
     )
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # Offset
-    # --------------------------------------------------------
+    # ========================================================
 
     offset = load_offset()
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # 第一次執行
     #
-    # 如果沒有 offset：
+    # 沒有 Offset：
     #
-    # 不處理舊訊息。
+    # 不處理舊訊息
     #
-    # 直接抓目前最後一筆 update_id，
-    # 從下一筆開始接收。
-    # --------------------------------------------------------
+    # 直接把目前最後一筆 Update ID + 1
+    # 當成下一次開始的位置
+    # ========================================================
 
     if offset is None:
 
@@ -670,75 +874,95 @@ def main():
             "🆕 第一次初始化 Telegram Offset"
         )
 
+
         print(
             "📡 正在取得目前 Telegram 訊息..."
         )
 
+
         updates = get_updates()
+
 
         if updates:
 
+
             latest_update_id = max(
+
                 update.get(
                     "update_id",
                     0
                 )
+
                 for update in updates
+
             )
+
 
             new_offset = (
                 latest_update_id + 1
             )
 
+
             save_offset(
                 new_offset
             )
 
+
             print("")
+
             print(
                 "ℹ️ 已略過目前舊訊息"
             )
+
 
             print(
                 f"⏭️ 下一筆從 Update ID "
                 f"{new_offset} 開始"
             )
 
+
         else:
+
 
             print(
                 "ℹ️ 目前沒有 Telegram 訊息"
             )
 
-            # ------------------------------------------------
-            # 沒有訊息時先設定 0
-            # 下一次會正常抓取
-            # ------------------------------------------------
 
             save_offset(0)
 
+
         return
 
-    # --------------------------------------------------------
-    # 正常抓取新訊息
-    # --------------------------------------------------------
+
+    # ========================================================
+    # 正常取得新訊息
+    # ========================================================
 
     print(
-        f"📡 正在取得 Telegram 新訊息..."
+        "📡 正在取得 Telegram 新訊息..."
     )
+
 
     print(
         f"🔢 使用 Offset：{offset}"
     )
 
+
     updates = get_updates(
         offset=offset
     )
+
 
     print(
         f"📨 Telegram 新訊息："
         f"{len(updates)} 筆"
     )
+
+
+    # ========================================================
+    # 沒有新訊息
+    # ========================================================
 
     if not updates:
 
@@ -748,25 +972,30 @@ def main():
 
         return
 
-    # --------------------------------------------------------
+
+    # ========================================================
     # 逐筆處理
-    # --------------------------------------------------------
+    # ========================================================
 
     next_offset = offset
 
+
     for update in updates:
+
 
         update_id = update.get(
             "update_id"
         )
 
+
         if update_id is None:
 
             continue
 
-        # ----------------------------------------------------
-        # Telegram update_id 必須嚴格往前
-        # ----------------------------------------------------
+
+        # ====================================================
+        # 跳過已經處理過的訊息
+        # ====================================================
 
         if update_id < next_offset:
 
@@ -777,57 +1006,75 @@ def main():
 
             continue
 
-        # ----------------------------------------------------
+
+        # ====================================================
         # 處理訊息
-        # ----------------------------------------------------
+        # ====================================================
 
         success = process_update(
             update
         )
 
-        # ----------------------------------------------------
-        # 只要這筆已經處理完成
-        # 就把 offset 往後移
+
+        # ====================================================
+        # 成功
         #
-        # 成功：
-        #   GitHub 已觸發 → 保存
+        # Update ID + 1
         #
-        # 非回測指令：
-        #   跳過 → 保存
-        #
-        # GitHub 失敗：
-        #   不往後移
-        # ----------------------------------------------------
+        # 防止下次再次執行
+        # ====================================================
 
         if success:
+
 
             next_offset = (
                 update_id + 1
             )
 
+
             save_offset(
                 next_offset
             )
 
+
+        # ====================================================
+        # GitHub 失敗
+        #
+        # 不更新 Offset
+        #
+        # 下次重新嘗試
+        # ====================================================
+
         else:
 
+
             print("")
+
+
             print(
                 "⚠️ 此筆訊息未成功處理"
             )
 
+
             print(
                 "⏸️ 不更新 Offset，"
-                "下次可重新嘗試"
+                "下次可以重新嘗試"
             )
+
 
             break
 
+
     print("")
+
     print("=" * 70)
+
+
     print(
         "🏁 Telegram Trigger 執行完成"
     )
+
+
     print("=" * 70)
 
 
