@@ -1187,7 +1187,11 @@ def main():
 # ============================================================
 # Telegram 發送回測結果
 # ============================================================
-
+print("====================================")
+print("📨 準備發送 Telegram 回測結果")
+print("BOT TOKEN 是否存在：", bool(BACKTEST_TELEGRAM_BOT_TOKEN))
+print("CHAT ID 是否存在：", bool(BACKTEST_TELEGRAM_CHAT_ID))
+print("====================================")
 def send_telegram(message):
 
     if not BACKTEST_TELEGRAM_BOT_TOKEN:
