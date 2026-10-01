@@ -27,6 +27,7 @@ import json
 import time
 import math
 import warnings
+import requests
 from datetime import datetime
 
 import numpy as np
@@ -36,7 +37,19 @@ import yfinance as yf
 warnings.filterwarnings("ignore")
 
 VERSION = "6.1-BACKTEST"
+# ============================================================
+# Telegram 回測 Bot
+# ============================================================
 
+BACKTEST_TELEGRAM_BOT_TOKEN = os.getenv(
+    "BACKTEST_TELEGRAM_BOT_TOKEN",
+    ""
+)
+
+BACKTEST_TELEGRAM_CHAT_ID = os.getenv(
+    "BACKTEST_TELEGRAM_CHAT_ID",
+    ""
+)
 # ============================================================
 # 6.1 條件
 # ============================================================
@@ -1171,7 +1184,56 @@ def main():
         results_df,
         summary_df
     )
+# ============================================================
+# Telegram 發送回測結果
+# ============================================================
 
+def send_telegram(message):
+
+    if not BACKTEST_TELEGRAM_BOT_TOKEN:
+        print("⚠️ 沒有設定 BACKTEST_TELEGRAM_BOT_TOKEN")
+        return False
+
+    if not BACKTEST_TELEGRAM_CHAT_ID:
+        print("⚠️ 沒有設定 BACKTEST_TELEGRAM_CHAT_ID")
+        return False
+
+    url = (
+        f"https://api.telegram.org/bot"
+        f"{BACKTEST_TELEGRAM_BOT_TOKEN}/sendMessage"
+    )
+
+    payload = {
+        "chat_id": BACKTEST_TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "HTML"
+    }
+
+    try:
+
+        response = requests.post(
+            url,
+            data=payload,
+            timeout=30
+        )
+
+        if response.ok:
+            print("✅ Telegram 回測結果已送出")
+            return True
+
+        print(
+            "❌ Telegram 發送失敗：",
+            response.text
+        )
+
+    except Exception as e:
+
+        print(
+            "❌ Telegram 發送錯誤：",
+            e
+        )
+
+    return False
     # --------------------------------------------------------
     # 終端顯示
     # --------------------------------------------------------
@@ -1227,7 +1289,58 @@ def main():
     print("1. backtest_results.csv")
     print("2. backtest_summary.csv")
     print("3. backtest_dashboard.html")
+    # ========================================================
+    # Telegram 回測摘要
+    # ========================================================
 
+    if not results_df.empty:
+
+        row = summary_df.iloc[0]
+
+        message = f"""
+<b>📊 台股飆股雷達 6.1 回測</b>
+
+🔎 模式：{MODE}
+📌 股票：{STOCK_CODES}
+📅 期間：{START_DATE} ～ {END_DATE}
+
+<b>📈 平均報酬</b>
+
++1日：{row["avg_return_1d"]:.2f}%
++3日：{row["avg_return_3d"]:.2f}%
++5日：{row["avg_return_5d"]:.2f}%
++10日：{row["avg_return_10d"]:.2f}%
++20日：{row["avg_return_20d"]:.2f}%
+
+<b>🎯 上漲機率</b>
+
++1日：{row["win_rate_1d"]:.2f}%
++3日：{row["win_rate_3d"]:.2f}%
++5日：{row["win_rate_5d"]:.2f}%
++10日：{row["win_rate_10d"]:.2f}%
++20日：{row["win_rate_20d"]:.2f}%
+
+<b>📊 其他統計</b>
+
+符合訊號：{int(row["signals"])} 次
+20日平均最大漲幅：{row["avg_max_gain_20d"]:.2f}%
+20日平均最大跌幅：{row["avg_max_loss_20d"]:.2f}%
+
+📁 詳細結果已產生 CSV 與 Dashboard。
+"""
+
+    else:
+
+        message = f"""
+<b>📊 台股飆股雷達 6.1 回測</b>
+
+📌 股票：{STOCK_CODES}
+📅 期間：{START_DATE} ～ {END_DATE}
+
+⚠️ 此期間沒有符合 6.1 條件的訊號。
+"""
+
+    send_telegram(message)
 
 if __name__ == "__main__":
     main()
