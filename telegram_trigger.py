@@ -2,18 +2,16 @@
 # Telegram → GitHub Actions 回測觸發器
 # Taiwan Stock Radar 6.1
 #
-# 免費 GitHub Actions 版
 # 功能：
+# Telegram 輸入：
 #
-# Telegram：
 #   回測2435
 #   回測2435,2330,3563
 #   回測2435 2025-10-01 2026-09-30
 #   回測幫助
 #
-# GitHub Actions 每 5 分鐘檢查一次 Telegram
-# 收到指令後 → repository_dispatch
-# → 使用既有 backtest_6_1.py
+# → 自動通知 GitHub Actions
+# → 使用既有 backtest_6_1.py 執行回測
 # ============================================================
 
 import os
@@ -26,6 +24,7 @@ import requests
 # ============================================================
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+
 GITHUB_TOKEN = os.getenv("MY_GITHUB_TOKEN", "")
 
 GITHUB_OWNER = os.getenv(
@@ -38,6 +37,12 @@ GITHUB_REPO = os.getenv(
     "cindy_tw_stock_radar_bot"
 )
 
+GITHUB_BRANCH = os.getenv(
+    "GITHUB_BRANCH",
+    "main"
+)
+
+
 DEFAULT_START_DATE = "2025-10-01"
 DEFAULT_END_DATE = "2026-09-30"
 
@@ -47,34 +52,61 @@ DEFAULT_END_DATE = "2026-09-30"
 # ============================================================
 
 def telegram_url(method):
-    return f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{method}"
 
+    return (
+        f"https://api.telegram.org/"
+        f"bot{TELEGRAM_BOT_TOKEN}/"
+        f"{method}"
+    )
+
+
+# ============================================================
+# 發送 Telegram 訊息
+# ============================================================
 
 def send_telegram(chat_id, message):
 
     if not TELEGRAM_BOT_TOKEN:
-        print("❌ 沒有 TELEGRAM_BOT_TOKEN")
+
+        print(
+            "❌ 沒有 TELEGRAM_BOT_TOKEN"
+        )
+
         return
 
-    url = telegram_url("sendMessage")
+
+    url = telegram_url(
+        "sendMessage"
+    )
+
 
     payload = {
-        "chat_id": chat_id,
-        "text": message
+
+        "chat_id":
+            chat_id,
+
+        "text":
+            message
     }
+
 
     try:
 
         response = requests.post(
+
             url,
+
             data=payload,
+
             timeout=30
         )
+
 
         print(
             "Telegram 回應：",
             response.status_code
         )
+
 
     except Exception as e:
 
@@ -85,7 +117,7 @@ def send_telegram(chat_id, message):
 
 
 # ============================================================
-# GitHub repository_dispatch
+# 觸發 GitHub Actions
 # ============================================================
 
 def trigger_github_backtest(
@@ -103,11 +135,13 @@ def trigger_github_backtest(
 
         return False
 
+
     url = (
         f"https://api.github.com/repos/"
         f"{GITHUB_OWNER}/"
         f"{GITHUB_REPO}/dispatches"
     )
+
 
     headers = {
 
@@ -120,6 +154,7 @@ def trigger_github_backtest(
         "X-GitHub-Api-Version":
             "2022-11-28"
     }
+
 
     payload = {
 
@@ -142,19 +177,26 @@ def trigger_github_backtest(
         }
     }
 
+
     try:
 
         response = requests.post(
+
             url,
+
             headers=headers,
+
             json=payload,
+
             timeout=30
         )
+
 
         print(
             "GitHub HTTP Status：",
             response.status_code
         )
+
 
         if response.status_code == 204:
 
@@ -164,11 +206,15 @@ def trigger_github_backtest(
 
             return True
 
+
         print(
             "❌ GitHub Actions 觸發失敗"
         )
 
-        print(response.text)
+        print(
+            response.text
+        )
+
 
     except Exception as e:
 
@@ -176,6 +222,7 @@ def trigger_github_backtest(
             "❌ GitHub API 錯誤：",
             e
         )
+
 
     return False
 
@@ -188,9 +235,10 @@ def parse_command(text):
 
     text = text.strip()
 
-    # ----------------------------
-    # 幫助
-    # ----------------------------
+
+    # --------------------------------------------------------
+    # 回測幫助
+    # --------------------------------------------------------
 
     if text in [
         "回測幫助",
@@ -202,13 +250,15 @@ def parse_command(text):
             "type": "help"
         }
 
-    # ----------------------------
-    # 回測指令
-    # ----------------------------
+
+    # --------------------------------------------------------
+    # 回測
+    # --------------------------------------------------------
 
     if text.startswith("回測"):
 
         content = text[2:].strip()
+
 
         if not content:
 
@@ -216,20 +266,27 @@ def parse_command(text):
                 "type": "help"
             }
 
+
         parts = content.split()
+
 
         stock_codes = parts[0]
 
+
         start_date = DEFAULT_START_DATE
+
         end_date = DEFAULT_END_DATE
+
 
         if len(parts) >= 2:
 
             start_date = parts[1]
 
+
         if len(parts) >= 3:
 
             end_date = parts[2]
+
 
         return {
 
@@ -253,9 +310,10 @@ def parse_command(text):
                 end_date
         }
 
-    # ----------------------------
-    # 不認識
-    # ----------------------------
+
+    # --------------------------------------------------------
+    # 未知指令
+    # --------------------------------------------------------
 
     return {
         "type": "unknown"
@@ -269,12 +327,14 @@ def parse_command(text):
 def get_updates(offset=None):
 
     params = {
-        "timeout": 5
+        "timeout": 30
     }
+
 
     if offset is not None:
 
         params["offset"] = offset
+
 
     try:
 
@@ -286,8 +346,9 @@ def get_updates(offset=None):
 
             params=params,
 
-            timeout=15
+            timeout=40
         )
+
 
         if not response.ok:
 
@@ -298,16 +359,20 @@ def get_updates(offset=None):
 
             return []
 
+
         data = response.json()
+
 
         if not data.get("ok"):
 
             return []
 
+
         return data.get(
             "result",
             []
         )
+
 
     except Exception as e:
 
@@ -325,19 +390,25 @@ def get_updates(offset=None):
 
 def main():
 
-    print("=" * 70)
+    print(
+        "=" * 70
+    )
+
 
     print(
         "🤖 Taiwan Stock Radar 6.1 "
         "Telegram Trigger"
     )
 
-    print("=" * 70)
+
+    print(
+        "=" * 70
+    )
 
 
-    # ----------------------------
-    # 檢查 Token
-    # ----------------------------
+    # --------------------------------------------------------
+    # 檢查 Telegram Token
+    # --------------------------------------------------------
 
     if not TELEGRAM_BOT_TOKEN:
 
@@ -347,6 +418,10 @@ def main():
 
         return
 
+
+    # --------------------------------------------------------
+    # 檢查 GitHub Token
+    # --------------------------------------------------------
 
     if not GITHUB_TOKEN:
 
@@ -358,91 +433,86 @@ def main():
 
 
     print(
-        "✅ Token 設定正常"
+        "✅ Telegram Trigger 啟動"
     )
 
-
-    # ========================================================
-    # 取得目前 Telegram 訊息
-    #
-    # 不使用永久 while True
-    # 每次 GitHub Actions 執行只檢查一次
-    # ========================================================
-
-    updates = get_updates()
 
     print(
-        f"📨 收到 {len(updates)} 筆 Telegram 更新"
+        "等待 Telegram 指令..."
     )
 
 
-    if not updates:
-
-        print(
-            "沒有新的 Telegram 指令"
-        )
-
-        return
+    offset = None
 
 
     # ========================================================
-    # 處理 Telegram 指令
+    # 持續監聽 Telegram
     # ========================================================
 
-    for update in updates:
+    while True:
 
-        update_id = update.get(
-            "update_id"
-        )
-
-        message = update.get(
-            "message"
-        )
-
-        if not message:
-
-            continue
-
-
-        chat_id = message.get(
-            "chat",
-            {}
-        ).get(
-            "id"
-        )
-
-        text = message.get(
-            "text",
-            ""
-        ).strip()
-
-
-        if not text:
-
-            continue
-
-
-        print(
-            f"📩 Telegram：{text}"
+        updates = get_updates(
+            offset
         )
 
 
-        command = parse_command(
-            text
-        )
+        for update in updates:
+
+            offset = (
+                update["update_id"] + 1
+            )
 
 
-        # ====================================================
-        # 幫助
-        # ====================================================
+            message = update.get(
+                "message"
+            )
 
-        if command["type"] == "help":
 
-            send_telegram(
+            if not message:
 
-                chat_id,
+                continue
 
-                """🤖 台股飆股雷達 6.1
+
+            chat_id = message.get(
+                "chat",
+                {}
+            ).get(
+                "id"
+            )
+
+
+            text = message.get(
+                "text",
+                ""
+            ).strip()
+
+
+            if not text:
+
+                continue
+
+
+            print(
+                f"📩 Telegram：{text}"
+            )
+
+
+            command = parse_command(
+                text
+            )
+
+
+            # =================================================
+            # 幫助
+            # =================================================
+
+            if command["type"] == "help":
+
+                send_telegram(
+
+                    chat_id,
+
+                    """🤖 台股飆股雷達 6.1
 
 📌 回測單一股票：
 回測2435
@@ -458,22 +528,22 @@ def main():
 
 ⏳ 回測完成後會自動把結果傳回 Telegram。
 """
-            )
+                )
 
-            continue
+                continue
 
 
-        # ====================================================
-        # 不認識
-        # ====================================================
+            # =================================================
+            # 未知指令
+            # =================================================
 
-        if command["type"] == "unknown":
+            if command["type"] == "unknown":
 
-            send_telegram(
+                send_telegram(
 
-                chat_id,
+                    chat_id,
 
-                """⚠️ 我看不懂這個指令。
+                    """⚠️ 我看不懂這個指令。
 
 請輸入：
 
@@ -483,68 +553,71 @@ def main():
 
 回測幫助
 """
-            )
-
-            continue
-
-
-        # ====================================================
-        # 回測
-        # ====================================================
-
-        if command["type"] == "backtest":
-
-            mode = command[
-                "mode"
-            ]
-
-            stock_codes = command[
-                "stock_codes"
-            ]
-
-            start_date = command[
-                "start_date"
-            ]
-
-            end_date = command[
-                "end_date"
-            ]
-
-
-            # ------------------------------------------------
-            # 日期檢查
-            # ------------------------------------------------
-
-            try:
-
-                start_obj = time.strptime(
-                    start_date,
-                    "%Y-%m-%d"
                 )
 
-                end_obj = time.strptime(
-                    end_date,
-                    "%Y-%m-%d"
-                )
+                continue
 
-                if start_obj > end_obj:
+
+            # =================================================
+            # 回測
+            # =================================================
+
+            if command["type"] == "backtest":
+
+                mode = command[
+                    "mode"
+                ]
+
+                stock_codes = command[
+                    "stock_codes"
+                ]
+
+                start_date = command[
+                    "start_date"
+                ]
+
+                end_date = command[
+                    "end_date"
+                ]
+
+
+                # ------------------------------------------------
+                # 日期檢查
+                # ------------------------------------------------
+
+                try:
+
+                    start_obj = time.strptime(
+                        start_date,
+                        "%Y-%m-%d"
+                    )
+
+
+                    end_obj = time.strptime(
+                        end_date,
+                        "%Y-%m-%d"
+                    )
+
+
+                    if start_obj > end_obj:
+
+                        send_telegram(
+
+                            chat_id,
+
+                            "⚠️ 開始日期不能晚於結束日期。"
+                        )
+
+                        continue
+
+
+                except Exception:
 
                     send_telegram(
 
                         chat_id,
 
-                        "⚠️ 開始日期不能晚於結束日期。"
-                    )
-
-                    continue
-
-            except Exception:
-
-                send_telegram(
-
-                    chat_id,
-
-                    """⚠️ 日期格式錯誤。
+                        """⚠️ 日期格式錯誤。
 
 請使用：
 
@@ -554,20 +627,20 @@ YYYY-MM-DD
 
 回測2435 2025-10-01 2026-09-30
 """
-                )
+                    )
 
-                continue
+                    continue
 
 
-            # ------------------------------------------------
-            # 告知使用者
-            # ------------------------------------------------
+                # ------------------------------------------------
+                # 通知使用者
+                # ------------------------------------------------
 
-            send_telegram(
+                send_telegram(
 
-                chat_id,
+                    chat_id,
 
-                f"""🚀 已收到回測指令
+                    f"""🚀 已收到回測指令
 
 📌 股票：{stock_codes}
 🔎 模式：{mode}
@@ -576,66 +649,52 @@ YYYY-MM-DD
 ⏳ 正在啟動 GitHub Actions...
 完成後會收到回測結果。
 """
-            )
+                )
 
 
-            # ------------------------------------------------
-            # 觸發 GitHub Actions
-            # ------------------------------------------------
+                # ------------------------------------------------
+                # 觸發 GitHub Actions
+                # ------------------------------------------------
 
-            success = trigger_github_backtest(
+                success = trigger_github_backtest(
 
-                mode,
-                stock_codes,
-                start_date,
-                end_date
-            )
+                    mode,
+
+                    stock_codes,
+
+                    start_date,
+
+                    end_date
+                )
 
 
-            if not success:
+                if not success:
 
-                send_telegram(
+                    send_telegram(
 
-                    chat_id,
+                        chat_id,
 
-                    """❌ GitHub Actions 啟動失敗。
+                        """❌ GitHub Actions 啟動失敗。
 
 請檢查：
 
 1. MY_GITHUB_TOKEN
 2. GitHub Repository
 3. Actions 權限
-4. repository_dispatch 設定
 """
-                )
+                    )
 
 
-    # ========================================================
-    # 確認已處理 Telegram 更新
-    #
-    # 用 offset = 最後一筆 update_id + 1
-    # 避免下一次 GitHub Actions 重複處理
-    # ========================================================
+        # --------------------------------------------------------
+        # 稍微休息
+        # --------------------------------------------------------
 
-    last_update_id = updates[-1].get(
-        "update_id"
-    )
+        time.sleep(1)
 
-    if last_update_id is not None:
 
-        confirm_offset = (
-            last_update_id + 1
-        )
-
-        print(
-            f"✅ 確認 Telegram 更新："
-            f"{confirm_offset}"
-        )
-
-        get_updates(
-            confirm_offset
-        )
-
+# ============================================================
+# 程式入口
+# ============================================================
 
 if __name__ == "__main__":
 
