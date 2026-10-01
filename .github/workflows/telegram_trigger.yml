@@ -8,6 +8,11 @@ on:
   workflow_dispatch:
 
 
+permissions:
+
+  contents: write
+
+
 jobs:
 
   telegram-trigger:
@@ -42,3 +47,24 @@ jobs:
         run: |
 
           python telegram_trigger.py
+
+      - name: Save Telegram Offset
+        run: |
+
+          git config user.name "github-actions[bot]"
+
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [ -f telegram_offset.txt ]; then
+
+            git add telegram_offset.txt
+
+            git diff --cached --quiet || git commit -m "Update Telegram offset"
+
+            git push
+
+          else
+
+            echo "沒有 Telegram offset 檔案，不需要保存"
+
+          fi
