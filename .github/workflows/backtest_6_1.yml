@@ -1,10 +1,167 @@
-- name: Run 6.1 Backtest
-  env:
-    BACKTEST_TELEGRAM_BOT_TOKEN: ${{ secrets.BACKTEST_TELEGRAM_BOT_TOKEN }}
-    BACKTEST_TELEGRAM_CHAT_ID: ${{ secrets.BACKTEST_TELEGRAM_CHAT_ID }}
-    MODE: ${{ github.event.inputs.mode }}
-    STOCK_CODES: ${{ github.event.inputs.stock_codes }}
-    START_DATE: ${{ github.event.inputs.start_date }}
-    END_DATE: ${{ github.event.inputs.end_date }}
-  run: |
-    python backtest_6_1.py
+name: Taiwan Stock Radar 6.1 Backtest
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "回測模式：SINGLE / MULTI / ALL"
+        required: true
+        default: "SINGLE"
+        type: choice
+        options:
+          - SINGLE
+          - MULTI
+          - ALL
+
+      stock_codes:
+        description: "股票代號，例如 3563 或 3563,2330,2454"
+        required: true
+        default: "3563"
+        type: string
+
+      start_date:
+        description: "開始日期，例如 2025-10-01"
+        required: true
+        default: "2025-10-01"
+        type: string
+
+      end_date:
+        description: "結束日期，例如 2026-09-30"
+        required: true
+        default: "2026-09-30"
+        type: string
+
+
+jobs:
+  backtest:
+    name: backtest
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ============================================================
+      # 1. 下載 GitHub Repository
+      # ============================================================
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+
+      # ============================================================
+      # 2. 設定 Python
+      # ============================================================
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+
+      # ============================================================
+      # 3. 安裝套件
+      # ============================================================
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas numpy yfinance requests
+
+
+      # ============================================================
+      # 4. 顯示回測設定
+      # ============================================================
+
+      - name: Show Backtest Settings
+        run: |
+          echo "=============================================="
+          echo "📊 Taiwan Stock Radar 6.1 BACKTEST"
+          echo "=============================================="
+          echo "模式：${{ github.event.inputs.mode }}"
+          echo "股票：${{ github.event.inputs.stock_codes }}"
+          echo "開始：${{ github.event.inputs.start_date }}"
+          echo "結束：${{ github.event.inputs.end_date }}"
+          echo "=============================================="
+
+
+      # ============================================================
+      # 5. 執行 6.1 回測
+      # ============================================================
+
+      - name: Run 6.1 Backtest
+        env:
+          BACKTEST_TELEGRAM_BOT_TOKEN: ${{ secrets.BACKTEST_TELEGRAM_BOT_TOKEN }}
+          BACKTEST_TELEGRAM_CHAT_ID: ${{ secrets.BACKTEST_TELEGRAM_CHAT_ID }}
+
+          MODE: ${{ github.event.inputs.mode }}
+          STOCK_CODES: ${{ github.event.inputs.stock_codes }}
+          START_DATE: ${{ github.event.inputs.start_date }}
+          END_DATE: ${{ github.event.inputs.end_date }}
+
+        run: |
+          echo "=============================================="
+          echo "📨 Telegram Secret 檢查"
+          echo "=============================================="
+
+          if [ -n "$BACKTEST_TELEGRAM_BOT_TOKEN" ]; then
+            echo "BOT TOKEN：已讀取"
+          else
+            echo "BOT TOKEN：未讀取"
+          fi
+
+          if [ -n "$BACKTEST_TELEGRAM_CHAT_ID" ]; then
+            echo "CHAT ID：已讀取"
+          else
+            echo "CHAT ID：未讀取"
+          fi
+
+          echo "=============================================="
+          echo "▶️ 開始執行 backtest_6_1.py"
+          echo "=============================================="
+
+          python backtest_6_1.py
+
+
+      # ============================================================
+      # 6. 確認回測結果檔案
+      # ============================================================
+
+      - name: Check Backtest Results
+        if: always()
+        run: |
+          echo "=============================================="
+          echo "📁 回測結果檔案"
+          echo "=============================================="
+
+          if [ -f "backtest_results.csv" ]; then
+            echo "✅ backtest_results.csv"
+          else
+            echo "⚠️ 找不到 backtest_results.csv"
+          fi
+
+          if [ -f "backtest_summary.csv" ]; then
+            echo "✅ backtest_summary.csv"
+          else
+            echo "⚠️ 找不到 backtest_summary.csv"
+          fi
+
+          if [ -f "backtest_dashboard.html" ]; then
+            echo "✅ backtest_dashboard.html"
+          else
+            echo "⚠️ 找不到 backtest_dashboard.html"
+          fi
+
+
+      # ============================================================
+      # 7. 上傳回測結果
+      # ============================================================
+
+      - name: Upload Backtest Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backtest-6-1-results
+          path: |
+            backtest_results.csv
+            backtest_summary.csv
+            backtest_dashboard.html
+          if-no-files-found: warn
