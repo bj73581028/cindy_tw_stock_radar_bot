@@ -1,12 +1,6 @@
 name: Telegram Backtest Trigger
 
 on:
-
-  # 每 5 分鐘檢查一次 Telegram
-  schedule:
-    - cron: "*/5 * * * *"
-
-  # 允許手動執行
   workflow_dispatch:
 
 permissions:
@@ -21,10 +15,11 @@ jobs:
     steps:
 
       # ======================================================
-      # Checkout
+      # 下載 Repository
       # ======================================================
 
       - name: Checkout
+
         uses: actions/checkout@v4
 
 
@@ -33,9 +28,11 @@ jobs:
       # ======================================================
 
       - name: Setup Python
+
         uses: actions/setup-python@v5
 
         with:
+
           python-version: "3.11"
 
 
@@ -44,25 +41,36 @@ jobs:
       # ======================================================
 
       - name: Install requests
+
         run: |
+
           pip install requests
 
 
       # ======================================================
-      # 執行 Telegram Trigger
+      # Telegram Backtest Trigger
       # ======================================================
 
-      - name: Check Telegram Commands
+      - name: Check Telegram Backtest Commands
 
         env:
 
-          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          # ⚠️ 重點：
+          # 使用「原本 Backtest」的 Telegram Bot
+          # 不再使用 TELEGRAM_BOT_TOKEN
 
-          MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
+          BACKTEST_TELEGRAM_BOT_TOKEN:
+            ${{ secrets.BACKTEST_TELEGRAM_BOT_TOKEN }}
 
-          GITHUB_OWNER: bj73581028
+          # GitHub PAT
+          MY_GITHUB_TOKEN:
+            ${{ secrets.MY_GITHUB_TOKEN }}
 
-          GITHUB_REPO: cindy_tw_stock_radar_bot
+          GITHUB_OWNER:
+            bj73581028
+
+          GITHUB_REPO:
+            cindy_tw_stock_radar_bot
 
         run: |
 
