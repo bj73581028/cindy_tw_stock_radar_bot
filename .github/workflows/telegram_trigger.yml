@@ -3,6 +3,10 @@ name: Telegram Backtest Trigger
 on:
   workflow_dispatch:
 
+  schedule:
+    # 每 1 分鐘檢查一次 Telegram
+    - cron: "* * * * *"
+
 permissions:
   contents: read
 
@@ -15,10 +19,11 @@ jobs:
     steps:
 
       # ======================================================
-      # 下載 Repository
+      # Checkout
       # ======================================================
 
       - name: Checkout
+
         uses: actions/checkout@v4
 
 
@@ -27,8 +32,11 @@ jobs:
       # ======================================================
 
       - name: Setup Python
+
         uses: actions/setup-python@v5
+
         with:
+
           python-version: "3.11"
 
 
@@ -37,12 +45,31 @@ jobs:
       # ======================================================
 
       - name: Install requests
+
         run: |
+
           pip install requests
 
 
       # ======================================================
-      # Telegram Backtest Trigger
+      # 還原 Telegram Offset
+      #
+      # 避免每次 Actions 執行都重新抓舊訊息
+      # ======================================================
+
+      - name: Restore Telegram Offset
+
+        uses: actions/cache/restore@v4
+
+        with:
+
+          path: telegram_offset.txt
+
+          key: telegram-offset-${{ github.repository }}
+
+
+      # ======================================================
+      # Telegram Trigger
       # ======================================================
 
       - name: Check Telegram Backtest Commands
@@ -50,13 +77,10 @@ jobs:
         env:
 
           # ==================================================
-          # Taiwan Stock Radar 6.1 Backtest Telegram Bot
+          # Telegram Bot
           #
-          # GitHub Secret 名稱：
+          # GitHub Secret：
           # BACKTEST_TELEGRAM_BOT_TOKEN
-          #
-          # Python 使用的環境變數：
-          # TELEGRAM_BOT_TOKEN
           # ==================================================
 
           TELEGRAM_BOT_TOKEN:
@@ -64,8 +88,7 @@ jobs:
 
 
           # ==================================================
-          # GitHub Personal Access Token
-          # 用來觸發原本的 Backtest Workflow
+          # GitHub PAT
           # ==================================================
 
           MY_GITHUB_TOKEN:
@@ -73,7 +96,7 @@ jobs:
 
 
           # ==================================================
-          # GitHub Repository
+          # Repository
           # ==================================================
 
           GITHUB_OWNER:
@@ -82,14 +105,27 @@ jobs:
           GITHUB_REPO:
             cindy_tw_stock_radar_bot
 
-
-          # ==================================================
-          # repository_dispatch event type
-          # ==================================================
-
           GITHUB_EVENT_TYPE:
             backtest
 
 
         run: |
+
           python telegram_trigger.py
+
+
+      # ======================================================
+      # 保存 Telegram Offset
+      # ======================================================
+
+      - name: Save Telegram Offset
+
+        uses: actions/cache/save@v4
+
+        if: always()
+
+        with:
+
+          path: telegram_offset.txt
+
+          key: telegram-offset-${{ github.repository }}
