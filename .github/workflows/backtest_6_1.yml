@@ -43,13 +43,15 @@ jobs:
           pip install pandas numpy yfinance
 
       - name: Run 6.1 Backtest
-        env:
-          MODE: ${{ github.event.inputs.mode }}
-          STOCK_CODES: ${{ github.event.inputs.stock_codes }}
-          START_DATE: ${{ github.event.inputs.start_date }}
-          END_DATE: ${{ github.event.inputs.end_date }}
-        run: |
-          python backtest_6_1.py
+  env:
+    BACKTEST_TELEGRAM_BOT_TOKEN: ${{ secrets.BACKTEST_TELEGRAM_BOT_TOKEN }}
+    BACKTEST_TELEGRAM_CHAT_ID: ${{ secrets.BACKTEST_TELEGRAM_CHAT_ID }}
+    MODE: ${{ github.event.inputs.mode }}
+    STOCK_CODES: ${{ github.event.inputs.stock_codes }}
+    START_DATE: ${{ github.event.inputs.start_date }}
+    END_DATE: ${{ github.event.inputs.end_date }}
+  run: |
+    python backtest_6_1.py
 
       - name: Upload Backtest Results
         uses: actions/upload-artifact@v4
