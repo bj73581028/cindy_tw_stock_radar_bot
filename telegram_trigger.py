@@ -29,7 +29,7 @@ TELEGRAM_BOT_TOKEN = os.getenv(
 )
 
 GITHUB_TOKEN = os.getenv(
-    "GITHUB_TOKEN",
+    "MY_GITHUB_TOKE",
     ""
 )
 
