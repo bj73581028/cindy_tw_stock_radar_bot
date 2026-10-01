@@ -2,11 +2,15 @@ name: Telegram Backtest Trigger
 
 on:
 
+  # 每 5 分鐘檢查一次 Telegram
   schedule:
     - cron: "*/5 * * * *"
 
+  # 允許手動執行
   workflow_dispatch:
 
+permissions:
+  contents: read
 
 jobs:
 
@@ -16,19 +20,40 @@ jobs:
 
     steps:
 
+      # ======================================================
+      # Checkout
+      # ======================================================
+
       - name: Checkout
         uses: actions/checkout@v4
 
+
+      # ======================================================
+      # Python
+      # ======================================================
+
       - name: Setup Python
         uses: actions/setup-python@v5
+
         with:
           python-version: "3.11"
+
+
+      # ======================================================
+      # 安裝 requests
+      # ======================================================
 
       - name: Install requests
         run: |
           pip install requests
 
+
+      # ======================================================
+      # 執行 Telegram Trigger
+      # ======================================================
+
       - name: Check Telegram Commands
+
         env:
 
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
