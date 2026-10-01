@@ -24,6 +24,8 @@ GITHUB_REPO = os.getenv(
 DEFAULT_START_DATE = "2025-10-01"
 DEFAULT_END_DATE = "2026-09-30"
 
+OFFSET_FILE = "telegram_offset.txt"
+
 
 # ============================================================
 # Telegram API
@@ -79,19 +81,84 @@ def send_telegram(chat_id, message):
 
 
 # ============================================================
-# 取得 Telegram 訊息
+# Offset
 # ============================================================
 
-def get_updates():
+def load_offset():
+
+    if not os.path.exists(OFFSET_FILE):
+        return None
+
+    try:
+
+        with open(
+            OFFSET_FILE,
+            "r",
+            encoding="utf-8"
+        ) as f:
+
+            value = f.read().strip()
+
+            if value:
+                return int(value)
+
+    except Exception as e:
+
+        print(
+            "⚠️ Offset 讀取失敗：",
+            e
+        )
+
+    return None
+
+
+def save_offset(offset):
+
+    try:
+
+        with open(
+            OFFSET_FILE,
+            "w",
+            encoding="utf-8"
+        ) as f:
+
+            f.write(str(offset))
+
+        print(
+            f"💾 Offset 已保存：{offset}"
+        )
+
+        return True
+
+    except Exception as e:
+
+        print(
+            "❌ Offset 保存失敗：",
+            e
+        )
+
+        return False
+
+
+# ============================================================
+# Telegram getUpdates
+# ============================================================
+
+def get_updates(offset=None):
+
+    params = {
+        "timeout": 1,
+        "allowed_updates": ["message"]
+    }
+
+    if offset is not None:
+        params["offset"] = offset
 
     try:
 
         response = requests.get(
             telegram_url("getUpdates"),
-            params={
-                "timeout": 1,
-                "allowed_updates": ["message"]
-            },
+            params=params,
             timeout=10
         )
 
@@ -120,7 +187,10 @@ def get_updates():
 
             return []
 
-        results = data.get("result", [])
+        results = data.get(
+            "result",
+            []
+        )
 
         print(
             f"📨 Telegram 新訊息：{len(results)} 筆"
@@ -139,33 +209,68 @@ def get_updates():
 
 
 # ============================================================
-# 確認 Telegram 訊息已讀
+# 解析指令
 # ============================================================
 
-def confirm_updates(last_update_id):
+def parse_command(text):
 
-    try:
+    text = text.strip()
 
-        response = requests.get(
-            telegram_url("getUpdates"),
-            params={
-                "offset": last_update_id + 1,
-                "timeout": 1
-            },
-            timeout=10
+    if text in [
+        "回測幫助",
+        "/help",
+        "help"
+    ]:
+
+        return {
+            "type": "help"
+        }
+
+    if text.startswith("回測"):
+
+        content = text[2:].strip()
+
+        if not content:
+
+            return {
+                "type": "help"
+            }
+
+        parts = content.split()
+
+        stock_codes = parts[0]
+
+        start_date = DEFAULT_START_DATE
+        end_date = DEFAULT_END_DATE
+
+        if len(parts) >= 2:
+            start_date = parts[1]
+
+        if len(parts) >= 3:
+            end_date = parts[2]
+
+        mode = (
+            "MULTI"
+            if "," in stock_codes
+            else "SINGLE"
         )
 
-        print(
-            "📌 Telegram 訊息確認：",
-            response.status_code
-        )
+        return {
 
-    except Exception as e:
+            "type": "backtest",
 
-        print(
-            "⚠️ Telegram 訊息確認失敗：",
-            e
-        )
+            "mode": mode,
+
+            "stock_codes": stock_codes,
+
+            "start_date": start_date,
+
+            "end_date": end_date
+        }
+
+    return {
+        "type": "unknown"
+    }
 
 
 # ============================================================
@@ -270,86 +375,6 @@ def trigger_github_backtest(
 
 
 # ============================================================
-# 解析指令
-# ============================================================
-
-def parse_command(text):
-
-    text = text.strip()
-
-    # ------------------------------
-    # 幫助
-    # ------------------------------
-
-    if text in [
-        "回測幫助",
-        "/help",
-        "help"
-    ]:
-
-        return {
-            "type": "help"
-        }
-
-    # ------------------------------
-    # 回測
-    # ------------------------------
-
-    if text.startswith("回測"):
-
-        content = text[2:].strip()
-
-        if not content:
-
-            return {
-                "type": "help"
-            }
-
-        parts = content.split()
-
-        stock_codes = parts[0]
-
-        start_date = DEFAULT_START_DATE
-        end_date = DEFAULT_END_DATE
-
-        if len(parts) >= 2:
-
-            start_date = parts[1]
-
-        if len(parts) >= 3:
-
-            end_date = parts[2]
-
-        mode = (
-            "MULTI"
-            if "," in stock_codes
-            else "SINGLE"
-        )
-
-        return {
-
-            "type":
-                "backtest",
-
-            "mode":
-                mode,
-
-            "stock_codes":
-                stock_codes,
-
-            "start_date":
-                start_date,
-
-            "end_date":
-                end_date
-        }
-
-    return {
-        "type": "unknown"
-    }
-
-
-# ============================================================
 # 處理回測
 # ============================================================
 
@@ -423,7 +448,7 @@ YYYY-MM-DD
     )
 
 
-    # 觸發 GitHub
+    # 觸發原本回測 Workflow
 
     success = trigger_github_backtest(
         mode,
@@ -449,6 +474,49 @@ YYYY-MM-DD
 
 
 # ============================================================
+# 第一次初始化
+# ============================================================
+
+def initialize_offset():
+
+    print("")
+    print("🧹 第一次初始化 Telegram Offset")
+    print("正在清除舊訊息，只保留之後的新指令...")
+
+    updates = get_updates()
+
+    if not updates:
+
+        print(
+            "ℹ️ 目前沒有需要清除的舊訊息"
+        )
+
+        return None
+
+    last_update_id = updates[-1].get(
+        "update_id"
+    )
+
+    if last_update_id is None:
+
+        return None
+
+    new_offset = last_update_id + 1
+
+    save_offset(new_offset)
+
+    print(
+        f"✅ 舊訊息已略過"
+    )
+
+    print(
+        f"➡️ 下一次只處理 update_id >= {new_offset}"
+    )
+
+    return new_offset
+
+
+# ============================================================
 # 主程式
 # ============================================================
 
@@ -462,8 +530,6 @@ def main():
 
     print("=" * 70)
 
-
-    # Token 檢查
 
     if not TELEGRAM_BOT_TOKEN:
 
@@ -488,9 +554,41 @@ def main():
     )
 
 
-    # 取得訊息
+    # --------------------------------------------------------
+    # 讀取 Offset
+    # --------------------------------------------------------
 
-    updates = get_updates()
+    offset = load_offset()
+
+
+    # --------------------------------------------------------
+    # 第一次執行
+    # --------------------------------------------------------
+
+    if offset is None:
+
+        initialize_offset()
+
+        print("")
+        print(
+            "⏭️ 第一次初始化完成，本次不執行任何回測。"
+        )
+
+        return
+
+
+    print(
+        f"📌 目前 Offset：{offset}"
+    )
+
+
+    # --------------------------------------------------------
+    # 取得新訊息
+    # --------------------------------------------------------
+
+    updates = get_updates(
+        offset
+    )
 
 
     if not updates:
@@ -502,9 +600,11 @@ def main():
         return
 
 
-    # 最新訊息
+    # --------------------------------------------------------
+    # 處理訊息
+    # --------------------------------------------------------
 
-    last_update_id = None
+    highest_update_id = offset - 1
 
 
     for update in updates:
@@ -513,9 +613,13 @@ def main():
             "update_id"
         )
 
-        if update_id is not None:
+        if update_id is None:
+            continue
 
-            last_update_id = update_id
+
+        if update_id > highest_update_id:
+
+            highest_update_id = update_id
 
 
         message = update.get(
@@ -556,9 +660,9 @@ def main():
         )
 
 
-        # --------------------------
+        # ----------------------------------------------------
         # 幫助
-        # --------------------------
+        # ----------------------------------------------------
 
         if command["type"] == "help":
 
@@ -588,9 +692,9 @@ def main():
             continue
 
 
-        # --------------------------
+        # ----------------------------------------------------
         # 不明指令
-        # --------------------------
+        # ----------------------------------------------------
 
         if command["type"] == "unknown":
 
@@ -610,9 +714,9 @@ def main():
             continue
 
 
-        # --------------------------
+        # ----------------------------------------------------
         # 回測
-        # --------------------------
+        # ----------------------------------------------------
 
         if command["type"] == "backtest":
 
@@ -622,12 +726,16 @@ def main():
             )
 
 
-    # 確認訊息已處理
+    # --------------------------------------------------------
+    # 保存最新 Offset
+    # --------------------------------------------------------
 
-    if last_update_id is not None:
+    if highest_update_id >= offset:
 
-        confirm_updates(
-            last_update_id
+        new_offset = highest_update_id + 1
+
+        save_offset(
+            new_offset
         )
 
 
