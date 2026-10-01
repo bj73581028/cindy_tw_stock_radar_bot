@@ -1,174 +1,424 @@
 import os
+import re
 import requests
-import json
+
+# ============================================================
+# 基本設定
+# ============================================================
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+GITHUB_TOKEN = os.getenv("MY_GITHUB_TOKEN", "")
 
-print("=" * 70)
-print("🤖 Taiwan Stock Radar 6.1 Telegram 診斷工具")
-print("=" * 70)
+GITHUB_OWNER = "bj73581028"
+GITHUB_REPO = "cindy_tw_stock_radar_bot"
 
-if not TELEGRAM_BOT_TOKEN:
-    print("❌ TELEGRAM_BOT_TOKEN 沒有設定")
-    raise SystemExit(1)
+DEFAULT_START_DATE = "2025-10-01"
+DEFAULT_END_DATE = "2026-09-30"
 
-BASE_URL = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
+TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}"
 
+
+# ============================================================
+# Telegram API
+# ============================================================
 
 def telegram_api(method, params=None):
+
+    url = f"{TELEGRAM_API}/{method}"
+
     try:
         response = requests.get(
-            f"{BASE_URL}/{method}",
+            url,
             params=params or {},
             timeout=20
         )
 
-        print(f"📡 {method} HTTP Status：{response.status_code}")
+        print(f"📡 Telegram HTTP Status：{response.status_code}")
 
-        try:
-            data = response.json()
-        except Exception:
-            print("❌ Telegram 回傳不是 JSON")
+        if response.status_code != 200:
             print(response.text)
             return None
 
-        return data
+        data = response.json()
+
+        if not data.get("ok"):
+            print(f"❌ Telegram API 錯誤：{data}")
+            return None
+
+        return data.get("result")
 
     except Exception as e:
-        print(f"❌ API 連線錯誤：{e}")
+
+        print(f"❌ Telegram API 連線錯誤：{e}")
+
         return None
 
 
 # ============================================================
-# 1. 測試 Bot Token
+# 發送 Telegram
 # ============================================================
 
-print()
-print("【1】檢查 Bot Token")
+def send_telegram(chat_id, text):
 
-me = telegram_api("getMe")
+    url = f"{TELEGRAM_API}/sendMessage"
 
-if not me or not me.get("ok"):
-    print("❌ Bot Token 無效")
-    print(me)
-    raise SystemExit(1)
+    try:
 
-bot_info = me["result"]
+        response = requests.post(
+            url,
+            data={
+                "chat_id": chat_id,
+                "text": text
+            },
+            timeout=20
+        )
 
-print("✅ Bot Token 正常")
-print(f"🤖 Bot 名稱：{bot_info.get('first_name', '')}")
-print(f"🆔 Bot Username：@{bot_info.get('username', '')}")
+        if response.status_code == 200:
 
+            print("✅ Telegram 回覆成功")
+            return True
 
-# ============================================================
-# 2. 檢查 Webhook
-# ============================================================
+        print(f"❌ Telegram 回覆失敗：{response.status_code}")
+        print(response.text)
 
-print()
-print("【2】檢查 Telegram Webhook")
+        return False
 
-webhook = telegram_api("getWebhookInfo")
+    except Exception as e:
 
-if not webhook or not webhook.get("ok"):
-    print("❌ 無法取得 Webhook 狀態")
-    print(webhook)
-else:
-    info = webhook["result"]
+        print(f"❌ Telegram 發送錯誤：{e}")
 
-    webhook_url = info.get("url", "")
-    pending = info.get("pending_update_count", 0)
-
-    print(f"🌐 Webhook URL：{webhook_url if webhook_url else '(空白)'}")
-    print(f"📨 Pending Updates：{pending}")
-
-    if info.get("last_error_message"):
-        print(f"⚠️ Webhook 最後錯誤：{info.get('last_error_message')}")
-
-    if webhook_url:
-        print()
-        print("❌ 發現 Webhook！")
-        print("❗ getUpdates 與 Webhook 不能同時使用")
-        print("❗ 這就是目前最需要處理的問題")
-    else:
-        print("✅ 沒有設定 Webhook")
-        print("✅ 可以使用 getUpdates")
+        return False
 
 
 # ============================================================
-# 3. 取得 Telegram 更新
+# 解析 Telegram 指令
 # ============================================================
 
-print()
-print("【3】測試 getUpdates")
+def parse_command(text):
 
-updates = telegram_api(
-    "getUpdates",
-    {
-        "limit": 100,
-        "timeout": 1,
-        "allowed_updates": ["message"]
+    if not text:
+        return None
+
+    text = text.strip()
+
+    # ----------------------------
+    # 說明
+    # ----------------------------
+
+    if text in ["回測幫助", "回測說明", "help", "/help"]:
+
+        return {
+            "mode": "HELP",
+            "stock_codes": []
+        }
+
+    # ----------------------------
+    # 全部股票
+    # ----------------------------
+
+    if text in ["回測全部", "回測ALL", "回測 ALL", "回測 all"]:
+
+        return {
+            "mode": "ALL",
+            "stock_codes": []
+        }
+
+    # ----------------------------
+    # 單一 / 多檔
+    #
+    # 回測2435
+    # 回測 2435
+    # 回測2435,2485
+    # 回測 2435 2485
+    # ----------------------------
+
+    if text.startswith("回測"):
+
+        content = text[2:].strip()
+
+        content = content.replace("，", ",")
+        content = content.replace("、", ",")
+        content = content.replace(" ", ",")
+
+        codes = re.findall(r"\d{4}", content)
+
+        if codes:
+
+            # 去除重複
+            codes = list(dict.fromkeys(codes))
+
+            return {
+                "mode": "SINGLE" if len(codes) == 1 else "MULTI",
+                "stock_codes": codes
+            }
+
+    return None
+
+
+# ============================================================
+# 觸發 GitHub Backtest
+# ============================================================
+
+def trigger_github_backtest(mode, stock_codes):
+
+    url = (
+        f"https://api.github.com/repos/"
+        f"{GITHUB_OWNER}/{GITHUB_REPO}/dispatches"
+    )
+
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "X-GitHub-Api-Version": "2022-11-28"
     }
-)
 
-if not updates:
-    print("❌ getUpdates 沒有取得回應")
-    raise SystemExit(1)
+    payload = {
 
-if not updates.get("ok"):
-    print("❌ getUpdates 發生錯誤")
-    print(json.dumps(updates, ensure_ascii=False, indent=2))
-    raise SystemExit(1)
+        "event_type": "telegram_backtest",
 
-result = updates.get("result", [])
+        "client_payload": {
 
-print(f"📨 Telegram 新訊息：{len(result)} 筆")
+            "mode": mode,
 
-if len(result) == 0:
-    print()
-    print("⚠️ 目前 Telegram 沒有傳給這個 Bot 的待處理訊息")
-else:
-    print()
-    print("🎉 有收到 Telegram 訊息！")
-    print("-" * 70)
+            "stock_codes": stock_codes,
 
-    for update in result:
+            "start_date": DEFAULT_START_DATE,
 
-        update_id = update.get("update_id")
+            "end_date": DEFAULT_END_DATE
+        }
+    }
+
+    try:
+
+        response = requests.post(
+            url,
+            headers=headers,
+            json=payload,
+            timeout=20
+        )
+
+        print(
+            f"📡 GitHub Dispatch HTTP Status："
+            f"{response.status_code}"
+        )
+
+        if response.status_code == 204:
+
+            print("✅ GitHub Backtest Workflow 已觸發")
+
+            return True
+
+        print("❌ GitHub Dispatch 失敗")
+        print(response.text)
+
+        return False
+
+    except Exception as e:
+
+        print(f"❌ GitHub API 錯誤：{e}")
+
+        return False
+
+
+# ============================================================
+# 處理回測
+# ============================================================
+
+def process_backtest(chat_id, mode, stock_codes):
+
+    if mode == "HELP":
+
+        message = """📚 台股飆股雷達 6.1｜Telegram 回測指令
+
+📌 單一股票
+回測2435
+
+📌 多檔股票
+回測2435,2485
+
+📌 全市場
+回測全部
+
+📅 預設回測期間
+2025-10-01 ～ 2026-09-30
+"""
+
+        send_telegram(chat_id, message)
+
+        return
+
+
+    if mode == "SINGLE":
+
+        stock_text = stock_codes[0]
+
+        message = f"""🚀 已收到回測指令
+
+📌 股票：{stock_text}
+📅 回測期間：{DEFAULT_START_DATE} ～ {DEFAULT_END_DATE}
+
+⏳ 正在啟動回測...
+"""
+
+    elif mode == "MULTI":
+
+        stock_text = ", ".join(stock_codes)
+
+        message = f"""🚀 已收到回測指令
+
+📌 股票：{stock_text}
+📅 回測期間：{DEFAULT_START_DATE} ～ {DEFAULT_END_DATE}
+
+⏳ 正在啟動回測...
+"""
+
+    else:
+
+        message = f"""🚀 已收到回測指令
+
+📌 模式：{mode}
+📅 回測期間：{DEFAULT_START_DATE} ～ {DEFAULT_END_DATE}
+
+⏳ 正在啟動回測...
+"""
+
+
+    send_telegram(chat_id, message)
+
+
+    # --------------------------------------------------------
+    # 觸發 GitHub
+    # --------------------------------------------------------
+
+    success = trigger_github_backtest(
+        mode,
+        stock_codes
+    )
+
+
+    if not success:
+
+        send_telegram(
+            chat_id,
+            "❌ GitHub 回測 Workflow 啟動失敗，請查看 GitHub Actions。"
+        )
+
+
+# ============================================================
+# 主程式
+# ============================================================
+
+def main():
+
+    print("=" * 70)
+    print("🤖 Taiwan Stock Radar 6.1 Telegram Trigger")
+    print("=" * 70)
+
+
+    # --------------------------------------------------------
+    # Token 檢查
+    # --------------------------------------------------------
+
+    if not TELEGRAM_BOT_TOKEN:
+
+        print("❌ TELEGRAM_BOT_TOKEN 沒有設定")
+
+        return
+
+
+    if not GITHUB_TOKEN:
+
+        print("❌ MY_GITHUB_TOKEN 沒有設定")
+
+        return
+
+
+    print("✅ Token 設定正常")
+
+
+    # --------------------------------------------------------
+    # 取得 Telegram 更新
+    # --------------------------------------------------------
+
+    print("📡 正在取得 Telegram 新訊息...")
+
+
+    updates = telegram_api(
+        "getUpdates",
+        {
+            "limit": 100,
+            "timeout": 1,
+            "allowed_updates": ["message"]
+        }
+    )
+
+
+    if updates is None:
+
+        print("❌ 無法取得 Telegram 更新")
+
+        return
+
+
+    print(f"📨 Telegram 新訊息：{len(updates)} 筆")
+
+
+    if len(updates) == 0:
+
+        print("ℹ️ 目前沒有 Telegram 指令")
+
+        return
+
+
+    # --------------------------------------------------------
+    # 處理訊息
+    # --------------------------------------------------------
+
+    for update in updates:
 
         message = update.get("message", {})
 
         chat = message.get("chat", {})
+
         chat_id = chat.get("id")
 
         text = message.get("text", "")
 
-        print(f"Update ID：{update_id}")
-        print(f"Chat ID：{chat_id}")
-        print(f"訊息：{text}")
+
         print("-" * 70)
 
+        print(f"📩 收到訊息：{text}")
 
-# ============================================================
-# 4. 最後結論
-# ============================================================
+        print(f"🆔 Chat ID：{chat_id}")
 
-print()
-print("=" * 70)
-print("🔎 診斷完成")
-print("=" * 70)
 
-if webhook and webhook.get("ok"):
-    info = webhook["result"]
+        command = parse_command(text)
 
-    if info.get("url"):
-        print("❌ 結論：Bot 有 Webhook，請先移除 Webhook。")
-    elif len(result) == 0:
-        print("⚠️ 結論：Webhook 正常，但目前沒有待處理 Telegram 訊息。")
-        print()
-        print("👉 請重新在 Telegram 傳一次：")
-        print("   回測2435")
-        print()
-        print("👉 然後重新執行 GitHub Actions。")
-    else:
-        print("✅ 結論：Telegram 已正常收到訊息。")
-        print("👉 下一步可以恢復回測觸發程式。")
+
+        if command is None:
+
+            print("⚠️ 無法辨識指令")
+
+            continue
+
+
+        mode = command["mode"]
+
+        stock_codes = command["stock_codes"]
+
+
+        print(f"📊 回測模式：{mode}")
+
+        print(f"📌 股票代號：{stock_codes}")
+
+
+        process_backtest(
+            chat_id,
+            mode,
+            stock_codes
+        )
+
+
+if __name__ == "__main__":
+
+    main()
