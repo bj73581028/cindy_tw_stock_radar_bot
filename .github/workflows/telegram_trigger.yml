@@ -31,5 +31,6 @@ jobs:
           MY_GITHUB_TOKEN: ${{ secrets.MY_GITHUB_TOKEN }}
           GITHUB_OWNER: bj73581028
           GITHUB_REPO: cindy_tw_stock_radar_bot
+
         run: |
           python telegram_trigger.py
