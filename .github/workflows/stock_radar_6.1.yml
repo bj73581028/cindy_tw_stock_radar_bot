@@ -49,7 +49,7 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
-          python stock_radar_6_1.py
+          python stock_radar_6.1.py
 
       # ==============================
       # 5. 保存 Dashboard
