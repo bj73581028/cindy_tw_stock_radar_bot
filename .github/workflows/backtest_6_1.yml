@@ -31,8 +31,17 @@ on:
         default: "2026-09-30"
         type: string
 
+  # ============================================================
+  # Telegram / 外部程式觸發
+  # ============================================================
+
+  repository_dispatch:
+    types:
+      - telegram_backtest
+
 
 jobs:
+
   backtest:
     name: backtest
     runs-on: ubuntu-latest
@@ -68,19 +77,66 @@ jobs:
 
 
       # ============================================================
-      # 4. 顯示回測設定
+      # 4. 取得回測參數
       # ============================================================
 
-      - name: Show Backtest Settings
+      - name: Set Backtest Parameters
+        id: params
+        shell: bash
         run: |
+
           echo "=============================================="
           echo "📊 Taiwan Stock Radar 6.1 BACKTEST"
           echo "=============================================="
-          echo "模式：${{ github.event.inputs.mode }}"
-          echo "股票：${{ github.event.inputs.stock_codes }}"
-          echo "開始：${{ github.event.inputs.start_date }}"
-          echo "結束：${{ github.event.inputs.end_date }}"
+
+          # --------------------------------------------------------
+          # 手動 Run workflow
+          # --------------------------------------------------------
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+
+            MODE="${{ github.event.inputs.mode }}"
+            STOCK_CODES="${{ github.event.inputs.stock_codes }}"
+            START_DATE="${{ github.event.inputs.start_date }}"
+            END_DATE="${{ github.event.inputs.end_date }}"
+
+          fi
+
+
+          # --------------------------------------------------------
+          # Telegram / repository_dispatch
+          # --------------------------------------------------------
+
+          if [ "${{ github.event_name }}" = "repository_dispatch" ]; then
+
+            MODE="${{ github.event.client_payload.mode }}"
+            STOCK_CODES="${{ github.event.client_payload.stock_codes }}"
+            START_DATE="${{ github.event.client_payload.start_date }}"
+            END_DATE="${{ github.event.client_payload.end_date }}"
+
+          fi
+
+
+          # --------------------------------------------------------
+          # 顯示參數
+          # --------------------------------------------------------
+
+          echo "模式：$MODE"
+          echo "股票：$STOCK_CODES"
+          echo "開始：$START_DATE"
+          echo "結束：$END_DATE"
+
           echo "=============================================="
+
+
+          # --------------------------------------------------------
+          # 輸出給後續 Step
+          # --------------------------------------------------------
+
+          echo "MODE=$MODE" >> "$GITHUB_OUTPUT"
+          echo "STOCK_CODES=$STOCK_CODES" >> "$GITHUB_OUTPUT"
+          echo "START_DATE=$START_DATE" >> "$GITHUB_OUTPUT"
+          echo "END_DATE=$END_DATE" >> "$GITHUB_OUTPUT"
 
 
       # ============================================================
@@ -89,15 +145,27 @@ jobs:
 
       - name: Run 6.1 Backtest
         env:
-          BACKTEST_TELEGRAM_BOT_TOKEN: ${{ secrets.BACKTEST_TELEGRAM_BOT_TOKEN }}
-          BACKTEST_TELEGRAM_CHAT_ID: ${{ secrets.BACKTEST_TELEGRAM_CHAT_ID }}
 
-          MODE: ${{ github.event.inputs.mode }}
-          STOCK_CODES: ${{ github.event.inputs.stock_codes }}
-          START_DATE: ${{ github.event.inputs.start_date }}
-          END_DATE: ${{ github.event.inputs.end_date }}
+          BACKTEST_TELEGRAM_BOT_TOKEN:
+            ${{ secrets.BACKTEST_TELEGRAM_BOT_TOKEN }}
+
+          BACKTEST_TELEGRAM_CHAT_ID:
+            ${{ secrets.BACKTEST_TELEGRAM_CHAT_ID }}
+
+          MODE:
+            ${{ steps.params.outputs.MODE }}
+
+          STOCK_CODES:
+            ${{ steps.params.outputs.STOCK_CODES }}
+
+          START_DATE:
+            ${{ steps.params.outputs.START_DATE }}
+
+          END_DATE:
+            ${{ steps.params.outputs.END_DATE }}
 
         run: |
+
           echo "=============================================="
           echo "📨 Telegram Secret 檢查"
           echo "=============================================="
@@ -115,6 +183,15 @@ jobs:
           fi
 
           echo "=============================================="
+          echo "📊 回測設定"
+          echo "=============================================="
+
+          echo "模式：$MODE"
+          echo "股票：$STOCK_CODES"
+          echo "開始：$START_DATE"
+          echo "結束：$END_DATE"
+
+          echo "=============================================="
           echo "▶️ 開始執行 backtest_6_1.py"
           echo "=============================================="
 
@@ -128,6 +205,7 @@ jobs:
       - name: Check Backtest Results
         if: always()
         run: |
+
           echo "=============================================="
           echo "📁 回測結果檔案"
           echo "=============================================="
@@ -158,10 +236,14 @@ jobs:
       - name: Upload Backtest Results
         if: always()
         uses: actions/upload-artifact@v4
+
         with:
+
           name: backtest-6-1-results
+
           path: |
             backtest_results.csv
             backtest_summary.csv
             backtest_dashboard.html
+
           if-no-files-found: warn
