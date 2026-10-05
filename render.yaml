@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: taiwan-stock-radar-technical-bot
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements_stock_bot.txt
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 1 --threads 4 telegram_stock_bot:app
+    healthCheckPath: /health
+    envVars:
+      - key: BACKTEST_TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        generateValue: true
