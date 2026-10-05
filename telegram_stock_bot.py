@@ -95,15 +95,32 @@ def stock_list():
 
 def find_stock(q):
     q = q.strip()
+
+    # 支援：3563、牧德、分析3563、分析 3563、/分析 3563、/分析牧德、/analyze 3563
     if q.startswith('/分析'):
         q = q[3:].strip()
     elif q.startswith('/analyze'):
         q = q[8:].strip()
+    elif q.startswith('分析'):
+        q = q[2:].strip()
 
     if not q:
         return None, '請輸入股票代號或名稱，例如：3563 或 牧德'
 
+    # ============================================================
+    # ① 股票代號：先直接從 TWSE / TPEx 股票清單找
+    # ============================================================
     if q.isdigit():
+        try:
+            names = stock_list()
+            for item in names:
+                if str(item.get('code', '')).strip() == q:
+                    print('✅ 股票代號找到：', item)
+                    return item, None
+        except Exception as e:
+            print('stock_list lookup error:', repr(e))
+
+        # 股票清單暫時取得失敗時，再用 Yahoo Finance 嘗試
         candidates = [
             {'code': q, 'name': q, 'market': 'TWSE', 'symbol': q + '.TW'},
             {'code': q, 'name': q, 'market': 'TPEx', 'symbol': q + '.TWO'},
@@ -114,29 +131,44 @@ def find_stock(q):
                     period='1mo', interval='1d', auto_adjust=False
                 )
                 if d is not None and len(d) >= 3:
-                    try:
-                        names = stock_list()
-                        for item in names:
-                            if item['code'] == q:
-                                return item, None
-                    except Exception:
-                        pass
+                    print('✅ Yahoo 找到股票：', s)
                     return s, None
             except Exception as e:
                 print('Code lookup:', s['symbol'], repr(e))
+
         return None, f'找不到「{q}」，請確認股票代號。'
 
-    ss = stock_list()
+    # ============================================================
+    # ② 股票名稱完全比對
+    # ============================================================
+    try:
+        ss = stock_list()
+    except Exception as e:
+        print('stock_list error:', repr(e))
+        return None, '目前無法取得股票清單，請稍後再試。'
+
     for s in ss:
-        if q == s['name']:
+        if q == str(s.get('name', '')).strip():
+            print('✅ 股票名稱找到：', s)
             return s, None
-    m = [s for s in ss if q in s['name']]
+
+    # ============================================================
+    # ③ 股票名稱模糊搜尋
+    # ============================================================
+    m = [
+        s for s in ss
+        if q in str(s.get('name', '')).strip()
+    ]
+
     if len(m) == 1:
+        print('✅ 模糊搜尋找到：', m[0])
         return m[0], None
+
     if m:
         return None, '找到多檔符合：\n' + '\n'.join(
             f"{x['code']} {x['name']}" for x in m[:10]
         )
+
     return None, f'找不到「{q}」，請輸入正確台股代號或名稱。'
 
 
