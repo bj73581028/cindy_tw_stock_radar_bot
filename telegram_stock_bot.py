@@ -173,17 +173,94 @@ def find_stock(q):
 
 
 def history(symbol):
-    try:
-        d = yf.Ticker(symbol).history(
-            period='1y', interval='1d', auto_adjust=False
-        )
-        if d is None or d.empty:
-            return None
-        d = d.dropna(subset=['Open', 'High', 'Low', 'Close', 'Volume'])
-        return d if len(d) >= 70 else None
-    except Exception as e:
-        print('History error:', symbol, repr(e))
-        return None
+    # Render 冷啟動時，Yahoo Finance 第一次請求偶爾會被拒絕、逾時或回傳空資料。
+    # 因此不要第一次失敗就直接回報「無歷史資料」，改採：
+    # 1. Yahoo Chart API query1 / query2 輪流重試
+    # 2. 每次失敗短暫等待
+    # 3. 最後才退回 yfinance
+    import time
+
+    headers = {
+        'User-Agent': (
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+            'AppleWebKit/537.36 (KHTML, like Gecko) '
+            'Chrome/154.0.0.0 Safari/537.36'
+        ),
+        'Accept': 'application/json,text/plain,*/*',
+        'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
+        'Connection': 'keep-alive',
+    }
+
+    for attempt in range(1, 4):
+        for host in ('query1.finance.yahoo.com', 'query2.finance.yahoo.com'):
+            try:
+                url = f'https://{host}/v8/finance/chart/{symbol}'
+                params = {
+                    'range': '1y',
+                    'interval': '1d',
+                    'events': 'div,splits',
+                    'includeAdjustedClose': 'true',
+                }
+                r = SESSION.get(url, params=params, headers=headers, timeout=30)
+                print(f'Yahoo Chart attempt={attempt} host={host} symbol={symbol} HTTP={r.status_code}')
+
+                if r.status_code != 200:
+                    continue
+
+                j = r.json()
+                result = (j.get('chart') or {}).get('result')
+                if not result:
+                    print('⚠️ Yahoo Chart result 為空：', symbol)
+                    continue
+
+                result = result[0]
+                ts = result.get('timestamp', [])
+                quote = (result.get('indicators') or {}).get('quote', [{}])[0]
+
+                if not ts or not quote:
+                    print('⚠️ Yahoo Chart OHLCV 為空：', symbol)
+                    continue
+
+                d = pd.DataFrame({
+                    'Open': quote.get('open', []),
+                    'High': quote.get('high', []),
+                    'Low': quote.get('low', []),
+                    'Close': quote.get('close', []),
+                    'Volume': quote.get('volume', []),
+                }, index=pd.to_datetime(ts, unit='s', utc=True).tz_convert(TZ).tz_localize(None))
+
+                d = d.dropna(subset=['Open', 'High', 'Low', 'Close', 'Volume'])
+                if len(d) >= 70:
+                    print(f'✅ Yahoo Chart 歷史資料：{symbol} {len(d)} 筆')
+                    return d
+
+                print(f'⚠️ Yahoo Chart 資料不足：{symbol} {len(d)} 筆')
+
+            except Exception as e:
+                print(f'Yahoo Chart error attempt={attempt} host={host} symbol={symbol}:', repr(e))
+
+        if attempt < 3:
+            time.sleep(1.5 * attempt)
+
+    # Yahoo Chart 連續失敗後，再嘗試 yfinance。
+    for attempt in range(1, 3):
+        try:
+            d = yf.Ticker(symbol).history(
+                period='1y', interval='1d', auto_adjust=False
+            )
+            if d is not None and not d.empty:
+                d = d.dropna(subset=['Open', 'High', 'Low', 'Close', 'Volume'])
+                if len(d) >= 70:
+                    print(f'✅ yfinance 歷史資料：{symbol} {len(d)} 筆')
+                    return d
+                print(f'⚠️ yfinance 資料不足：{symbol} {len(d)} 筆')
+        except Exception as e:
+            print(f'yfinance History error attempt={attempt} symbol={symbol}:', repr(e))
+        if attempt < 2:
+            time.sleep(2)
+
+    print('❌ 歷史資料取得最終失敗：', symbol)
+    return None
 
 
 def kd(d):
