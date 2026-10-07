@@ -444,7 +444,7 @@ def handle_update(u):
         return
 
     # ==============================
-    # 取得實際查詢內容
+    # 解析指令
     # ==============================
     if text.startswith('/分析'):
         q = text[3:].strip()
@@ -453,58 +453,29 @@ def handle_update(u):
         q = text[8:].strip()
 
     elif text.startswith('/backtest'):
+        # /backtest 大盤
+        # 這裡只把 /backtest 拿掉
         q = text[9:].strip()
 
-        # 目前這個版本沒有真正的歷史回測功能
-        # 如果輸入 /backtest 大盤
-        # 先讓它直接進入大盤分析，確保 Telegram 有反應
-        if is_market_query(q):
-            print('📊 收到 /backtest 大盤，改由大盤分析模組處理')
-
-            send(
-                cid,
-                '🔎 收到 <b>大盤</b> 指令，正在分析台股大盤，請稍候...'
-            )
-
-            x, err = analyze_market()
-
-            if err:
-                send(cid, '⚠️ ' + err)
-                return
-
-            send(cid, market_report(x))
-            print('✅ 大盤分析完成')
-            return
-
-        # 非大盤的 /backtest 暫時提示
-        send(
-            cid,
-            '⚠️ 目前此版本的 /backtest 僅先支援「大盤」。\n\n'
-            '請輸入：\n'
-            '<code>/backtest 大盤</code>'
-        )
-        return
-
     else:
-        # 直接輸入，例如：
-        # 大盤
-        # 3563
-        # 牧德
+        # 直接輸入：大盤、3563、牧德
         q = text
 
+    print('🔎 實際查詢內容：', repr(q))
+
     # ==============================
-    # 沒有輸入內容
+    # 沒有輸入
     # ==============================
     if not q:
         send(cid, help_text())
         return
 
     # ==============================
-    # ⭐ 大盤判斷
+    # ⭐ 大盤
     # ==============================
     if is_market_query(q):
 
-        print('📊 偵測到大盤指令：', q)
+        print('📊 偵測到大盤指令：', repr(q))
 
         send(
             cid,
@@ -525,17 +496,16 @@ def handle_update(u):
 
         except Exception as e:
             print('❌ 大盤分析例外：', repr(e))
-
             send(
                 cid,
-                '⚠️ 大盤分析發生錯誤。\n'
-                '請稍後再試。'
+                '⚠️ 大盤分析發生錯誤：\n'
+                f'<code>{str(e)}</code>'
             )
 
         return
 
     # ==============================
-    # ⭐ 個股分析
+    # ⭐ 個股
     # ==============================
     send(
         cid,
@@ -573,6 +543,6 @@ def handle_update(u):
 
         send(
             cid,
-            f'⚠️ {q} 分析發生錯誤。\n'
-            '請稍後再試。'
+            f'⚠️ {q} 分析發生錯誤：\n'
+            f'<code>{str(e)}</code>'
         )
