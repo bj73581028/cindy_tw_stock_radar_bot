@@ -1,5 +1,51 @@
-print("🔥🔥🔥 RUNNING NEW 6.1 CODE 🔥🔥🔥")
-print("VERSION =", VERSION)
+# ============================================================
+# Taiwan Stock Radar 6.1
+# Telegram 技術分析機器人
+#
+# 功能：
+# 1. 輸入股票代號，例如：3563
+# 2. 輸入股票名稱，例如：牧德
+# 3. /分析 3563
+# 4. /分析 牧德
+# 5. 大盤 / TWII / TAIEX
+#
+# 分析內容：
+# - 現價
+# - 今日漲跌
+# - 今日成交量
+# - 5日平均成交量
+# - 量比
+# - 成交金額
+# - MA5 / MA10 / MA20 / MA60
+# - MA10 / MA20 乖離
+# - KD
+# - RSI5 / RSI10
+# - MACD DIF / DEA
+# - 三線共振
+# - 支撐 S1 / S2 / S3
+# - 壓力 R1 / R2 / R3
+# - 52週高點
+# - 距離52週高點
+# - 20日漲跌
+#
+# 大盤：
+# - ^TWII
+# - MA5 / MA10 / MA20 / MA60
+# - KD
+# - RSI
+# - MACD
+# - 支撐 / 壓力
+# - 52週高點
+# - 市場多空狀態
+#
+# 注意：
+# 本程式「不是回測程式」
+# 不會執行 SINGLE / MULTI / ALL
+# 不會要求輸入日期區間
+# 不會計算未來 +1 / +3 / +5 / +10 / +20
+# ============================================================
+
+
 import os
 import time
 import warnings
@@ -11,42 +57,32 @@ import pandas as pd
 import requests
 import yfinance as yf
 
-warnings.filterwarnings("ignore")
 
 # ============================================================
-# Taiwan Stock Radar 6.1
-# 即時技術分析版
-#
-# 功能：
-# 1. 上市股票
-# 2. 上櫃股票
-# 3. 個股即時技術分析
-# 4. 台股大盤 ^TWII 技術分析
-# 5. 支撐 / 壓力
-# 6. MA5 / MA10 / MA20 / MA60
-# 7. KD / RSI / MACD
-# 8. 今日量 / 5日均量 / 量比
-# 9. 52週高
-# 10. Telegram 查詢
-#
-# ⚠️ 本程式不是回測
+# 基本設定
 # ============================================================
+
+warnings.filterwarnings("ignore")
 
 VERSION = "6.1-TECH-BOT-20261007"
 
+print("🔥🔥🔥 RUNNING NEW 6.1 TECH BOT 🔥🔥🔥")
+print("VERSION =", VERSION)
+
 TZ = ZoneInfo("Asia/Taipei")
 
-TOKEN = os.getenv(
-    "BACKTEST_TELEGRAM_BOT_TOKEN",
-    ""
-)
+TOKEN = os.getenv("BACKTEST_TELEGRAM_BOT_TOKEN", "").strip()
 
 SESSION = requests.Session()
 
 SESSION.headers.update({
-    "User-Agent":
-        "Mozilla/5.0 TaiwanStockRadar/6.1"
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/120.0 Safari/537.36"
+    )
 })
+
 
 # ============================================================
 # 大盤設定
@@ -75,56 +111,45 @@ def now():
     return datetime.now(TZ)
 
 
-def log(*x):
-    print(
-        now().strftime("%Y-%m-%d %H:%M:%S"),
-        *x,
-        flush=True
-    )
+def log(msg):
+    print(f"[{now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
 
 
-def fmt(x, d=2):
-
+def fmt(v, digits=2):
     try:
-
-        if pd.isna(x):
+        if v is None:
             return "-"
-
-        return f"{float(x):.{d}f}"
-
+        if pd.isna(v):
+            return "-"
+        return f"{float(v):,.{digits}f}"
     except Exception:
-
         return "-"
 
 
-def pct(x):
-
+def pct(v, digits=2):
     try:
-
-        if pd.isna(x):
+        if v is None:
             return "-"
-
-        return f"{float(x):+.2f}%"
-
+        if pd.isna(v):
+            return "-"
+        return f"{float(v):+,.{digits}f}%"
     except Exception:
-
         return "-"
 
 
-def icon(t):
-
-    return {
-        "強勢向上": "🚀",
-        "溫和向上": "↗️",
-        "平穩": "➡️",
-        "略為向下": "↘️",
-        "明顯向下": "🔻",
-        "資料不足": "❔"
-    }.get(t, "➡️")
+def icon(v):
+    try:
+        if float(v) > 0:
+            return "🟢"
+        if float(v) < 0:
+            return "🔴"
+        return "🟡"
+    except Exception:
+        return "🟡"
 
 
 # ============================================================
-# 判斷是否為大盤
+# 判斷是不是大盤
 # ============================================================
 
 def is_market_query(q):
@@ -133,8 +158,6 @@ def is_market_query(q):
         return False
 
     q = str(q).strip()
-
-    # 去除全形空白
     q = q.replace("\u3000", "")
 
     if q in MARKET_KEYWORDS:
@@ -154,114 +177,67 @@ def is_market_query(q):
 # Telegram API
 # ============================================================
 
-def telegram(
-    method,
-    params=None,
-    post=False
-):
+def telegram(method, payload=None, timeout=30):
 
     if not TOKEN:
-
-        log(
-            "❌ BACKTEST_TELEGRAM_BOT_TOKEN 未讀取"
+        raise RuntimeError(
+            "BACKTEST_TELEGRAM_BOT_TOKEN 未設定"
         )
 
-        return None
+    url = f"https://api.telegram.org/bot{TOKEN}/{method}"
 
     try:
 
-        url = (
-            f"https://api.telegram.org/"
-            f"bot{TOKEN}/{method}"
+        r = SESSION.post(
+            url,
+            json=payload or {},
+            timeout=timeout
         )
-
-        if post:
-
-            r = SESSION.post(
-                url,
-                json=params or {},
-                timeout=40
-            )
-
-        else:
-
-            r = SESSION.get(
-                url,
-                params=params or {},
-                timeout=40
-            )
 
         log(
-            "Telegram",
-            method,
-            "HTTP",
-            r.status_code
+            f"Telegram {method} HTTP Status："
+            f"{r.status_code}"
         )
 
-        if not r.ok:
+        r.raise_for_status()
 
-            log(
-                "Telegram error:",
-                r.text[:1000]
-            )
-
-            return None
-
-        data = r.json()
-
-        if not data.get("ok"):
-
-            log(
-                "Telegram API error:",
-                data
-            )
-
-            return None
-
-        return data.get("result")
+        return r.json()
 
     except Exception as e:
 
         log(
-            "Telegram exception:",
-            repr(e)
+            f"❌ Telegram {method} 發生錯誤：{e}"
         )
 
-        return None
+        return {}
 
 
-# ============================================================
-# 發送 Telegram
-# ============================================================
+def send(chat_id, text):
 
-def send(
-    chat_id,
-    text
-):
+    if not chat_id:
+        return
 
-    return telegram(
+    telegram(
         "sendMessage",
         {
             "chat_id": chat_id,
             "text": text,
             "parse_mode": "HTML",
             "disable_web_page_preview": True
-        },
-        post=True
+        }
     )
 
 
 # ============================================================
-# 台股完整名單
-# 上市 + 上櫃
+# 取得股票清單
 # ============================================================
 
 def stock_list():
 
-    out = []
+    stocks = []
 
     # --------------------------------------------------------
-    # 上市
+    # TWSE
     # --------------------------------------------------------
 
     try:
@@ -273,7 +249,7 @@ def stock_list():
 
         r = SESSION.get(
             url,
-            timeout=30
+            timeout=20
         )
 
         r.raise_for_status()
@@ -290,38 +266,38 @@ def stock_list():
                 x.get("Name", "")
             ).strip()
 
-            if (
-                code.isdigit()
-                and len(code) == 4
-                and name
-                and not code.startswith(
-                    ("00", "01", "02", "03")
-                )
-            ):
+            if not code:
+                continue
 
-                out.append({
-                    "code": code,
-                    "name": name,
-                    "market": "TWSE",
-                    "symbol": code + ".TW"
-                })
+            if not code.isdigit():
+                continue
+
+            if len(code) != 4:
+                continue
+
+            if code.startswith(
+                ("00", "01", "02", "03")
+            ):
+                continue
+
+            stocks.append({
+                "code": code,
+                "name": name,
+                "market": "TWSE"
+            })
 
         log(
-            "TWSE 股票數：",
-            len(out)
+            f"TWSE 股票數：{len(stocks)}"
         )
 
     except Exception as e:
 
         log(
-            "TWSE list error:",
-            repr(e)
+            f"⚠️ TWSE 股票清單取得失敗：{e}"
         )
 
-    twse_count = len(out)
-
     # --------------------------------------------------------
-    # 上櫃
+    # TPEx
     # --------------------------------------------------------
 
     try:
@@ -333,7 +309,7 @@ def stock_list():
 
         r = SESSION.get(
             url,
-            timeout=30
+            timeout=20
         )
 
         r.raise_for_status()
@@ -343,87 +319,80 @@ def stock_list():
         for x in data:
 
             code = str(
-                x.get(
-                    "SecuritiesCompanyCode",
-                    ""
-                )
+                x.get("SecuritiesCompanyCode", "")
             ).strip()
 
             name = str(
-                x.get(
-                    "CompanyName",
-                    ""
-                )
+                x.get("CompanyName", "")
             ).strip()
 
-            if (
-                code.isdigit()
-                and len(code) == 4
-                and name
-                and not code.startswith(
-                    ("00", "01", "02", "03")
-                )
-            ):
+            if not code:
+                continue
 
-                out.append({
-                    "code": code,
-                    "name": name,
-                    "market": "TPEx",
-                    "symbol": code + ".TWO"
-                })
+            if not code.isdigit():
+                continue
+
+            if len(code) != 4:
+                continue
+
+            if code.startswith(
+                ("00", "01", "02", "03")
+            ):
+                continue
+
+            stocks.append({
+                "code": code,
+                "name": name,
+                "market": "TPEx"
+            })
 
         log(
-            "TPEx 股票數：",
-            len(out) - twse_count
+            f"TPEx 加入後股票數：{len(stocks)}"
         )
 
     except Exception as e:
 
         log(
-            "TPEx list error:",
-            repr(e)
+            f"⚠️ TPEx 股票清單取得失敗：{e}"
         )
 
     # --------------------------------------------------------
-    # 去除完全重複
-    # 同一代號上市/上櫃可以同時存在
+    # 去除重複
     # --------------------------------------------------------
+
+    result = []
 
     seen = set()
 
-    clean = []
-
-    for x in out:
+    for x in stocks:
 
         key = (
             x["market"],
             x["code"]
         )
 
-        if key not in seen:
+        if key in seen:
+            continue
 
-            seen.add(key)
-
-            clean.append(x)
+        seen.add(key)
+        result.append(x)
 
     log(
-        "台股總股票數：",
-        len(clean)
+        f"📊 最終股票清單：{len(result)}"
     )
 
-    return clean
+    return result
 
 
 # ============================================================
 # Yahoo Finance 歷史資料
-#
-# 特別處理新版 yfinance MultiIndex
 # ============================================================
 
-def yf_history(
-    symbol,
-    period="1y"
-):
+def yf_history(symbol, period="1y"):
+
+    log(
+        f"📡 取得 Yahoo Finance：{symbol}"
+    )
 
     try:
 
@@ -440,105 +409,136 @@ def yf_history(
         if d is None or d.empty:
 
             log(
-                "Yahoo 無資料：",
-                symbol
+                f"❌ {symbol} 沒有資料"
             )
 
             return None
 
         # ----------------------------------------------------
-        # yfinance MultiIndex
+        # MultiIndex 處理
         # ----------------------------------------------------
 
-        if isinstance(
-            d.columns,
-            pd.MultiIndex
-        ):
+        if isinstance(d.columns, pd.MultiIndex):
 
-            levels0 = list(
+            cols0 = list(
                 d.columns.get_level_values(0)
             )
 
-            levels1 = list(
+            cols1 = list(
                 d.columns.get_level_values(1)
             )
 
-            if symbol in levels1:
+            if symbol in cols1:
 
-                d = d.xs(
-                    symbol,
-                    axis=1,
-                    level=1
-                )
+                try:
 
-            elif symbol in levels0:
+                    d = d.xs(
+                        symbol,
+                        axis=1,
+                        level=1
+                    )
 
-                d = d.xs(
-                    symbol,
-                    axis=1,
-                    level=0
-                )
+                except Exception:
+                    pass
+
+            elif symbol in cols0:
+
+                try:
+
+                    d = d.xs(
+                        symbol,
+                        axis=1,
+                        level=0
+                    )
+
+                except Exception:
+                    pass
 
             else:
 
-                d.columns = [
-                    c[0]
-                    for c in d.columns
-                ]
+                try:
+
+                    d.columns = [
+                        x[0]
+                        for x in d.columns
+                    ]
+
+                except Exception:
+                    pass
 
         # ----------------------------------------------------
-        # 清理欄位
+        # 日期處理
         # ----------------------------------------------------
 
-        d.columns = [
-            str(c).replace(" ", "")
-            for c in d.columns
+        d = d.copy()
+
+        if not isinstance(
+            d.index,
+            pd.DatetimeIndex
+        ):
+
+            d.index = pd.to_datetime(
+                d.index,
+                errors="coerce"
+            )
+
+        d = d[
+            ~d.index.isna()
         ]
 
-        need = [
+        try:
+
+            if d.index.tz is not None:
+
+                d.index = d.index.tz_convert(
+                    TZ
+                ).tz_localize(None)
+
+        except Exception:
+
+            try:
+
+                d.index = d.index.tz_localize(
+                    None
+                )
+
+            except Exception:
+                pass
+
+        # ----------------------------------------------------
+        # 必要欄位
+        # ----------------------------------------------------
+
+        required = [
             "Open",
             "High",
             "Low",
             "Close"
         ]
 
-        for c in need:
+        for col in required:
 
-            if c not in d.columns:
+            if col not in d.columns:
 
                 log(
-                    "Yahoo 缺少欄位：",
-                    symbol,
-                    c
+                    f"❌ {symbol} 缺少欄位：{col}"
                 )
 
                 return None
 
-        d.index = pd.to_datetime(
-            d.index
-        )
-
-        try:
-
-            if d.index.tz is not None:
-
-                d.index = (
-                    d.index
-                    .tz_localize(None)
-                )
-
-        except Exception:
-
-            pass
-
         # ----------------------------------------------------
-        # 數值化
+        # 數值轉換
         # ----------------------------------------------------
 
-        for c in need:
+        for col in [
+            "Open",
+            "High",
+            "Low",
+            "Close"
+        ]:
 
-            d[c] = pd.to_numeric(
-                d[c],
+            d[col] = pd.to_numeric(
+                d[col],
                 errors="coerce"
             )
 
@@ -549,21 +549,20 @@ def yf_history(
                 errors="coerce"
             )
 
-        # ----------------------------------------------------
-        # 大盤 Volume 可能缺值
-        # 所以不能把 Volume 當成必要欄位
-        # ----------------------------------------------------
-
         d = d.dropna(
-            subset=need
+            subset=[
+                "Open",
+                "High",
+                "Low",
+                "Close"
+            ]
         )
 
         if len(d) < 70:
 
             log(
-                "歷史資料不足：",
-                symbol,
-                len(d)
+                f"❌ {symbol} 有效資料不足："
+                f"{len(d)}"
             )
 
             return None
@@ -573,16 +572,14 @@ def yf_history(
     except Exception as e:
 
         log(
-            "Yahoo history error:",
-            symbol,
-            repr(e)
+            f"❌ Yahoo {symbol} 錯誤：{e}"
         )
 
         return None
 
 
 # ============================================================
-# 個股歷史資料
+# 股票歷史資料
 # ============================================================
 
 def stock_history(symbol):
@@ -593,17 +590,16 @@ def stock_history(symbol):
     )
 
     if d is None:
-
         return None
 
     if "Volume" not in d.columns:
 
-        return None
+        d["Volume"] = 0
 
-    d["Volume"] = (
-        d["Volume"]
-        .fillna(0)
-    )
+    d["Volume"] = pd.to_numeric(
+        d["Volume"],
+        errors="coerce"
+    ).fillna(0)
 
     return d
 
@@ -614,6 +610,9 @@ def stock_history(symbol):
 
 def find_stock(q):
 
+    if q is None:
+        return None, None
+
     q = str(q).strip()
 
     q = q.replace(
@@ -622,21 +621,25 @@ def find_stock(q):
     )
 
     # --------------------------------------------------------
-    # /分析
+    # 清除指令
     # --------------------------------------------------------
 
     if q.startswith("/分析"):
 
-        q = q[3:].strip()
+        q = q[
+            len("/分析"):
+        ].strip()
 
     elif q.lower().startswith(
         "/analyze"
     ):
 
-        q = q[8:].strip()
+        q = q[
+            len("/analyze"):
+        ].strip()
 
     # --------------------------------------------------------
-    # 大盤優先
+    # 大盤
     # --------------------------------------------------------
 
     if is_market_query(q):
@@ -645,126 +648,125 @@ def find_stock(q):
             "code": "TWII",
             "name": "加權指數",
             "market": "TWSE",
-            "symbol": MARKET_SYMBOL
+            "symbol": "^TWII"
         }, None
 
     # --------------------------------------------------------
-    # 空白
+    # 股票清單
     # --------------------------------------------------------
 
-    if not q:
+    stocks = stock_list()
 
-        return (
-            None,
-            "請輸入股票代號或名稱，例如：3563 或 牧德"
+    if not stocks:
+
+        return None, (
+            "❌ 無法取得股票清單，"
+            "請稍後再試。"
         )
 
     # --------------------------------------------------------
-    # 股票名單
-    # --------------------------------------------------------
-
-    names = stock_list()
-
-    # --------------------------------------------------------
-    # 股票代號
+    # 代號
     # --------------------------------------------------------
 
     if q.isdigit():
 
-        candidates = [
-            x for x in names
+        exact = [
+            x for x in stocks
             if x["code"] == q
         ]
 
-        # API 名單偶爾失敗
-        # 仍然直接嘗試 Yahoo
-        if not candidates:
+        # 先找股票清單
+        for x in exact:
 
-            candidates = [
-
-                {
-                    "code": q,
-                    "name": q,
-                    "market": "TWSE",
-                    "symbol": q + ".TW"
-                },
-
-                {
-                    "code": q,
-                    "name": q,
-                    "market": "TPEx",
-                    "symbol": q + ".TWO"
-                }
-
-            ]
-
-        for s in candidates:
-
-            d = stock_history(
-                s["symbol"]
+            symbol = (
+                f'{x["code"]}.TW'
+                if x["market"] == "TWSE"
+                else
+                f'{x["code"]}.TWO'
             )
+
+            d = stock_history(symbol)
 
             if d is not None:
 
-                # 如果有官方名稱
-                for z in names:
+                x = x.copy()
 
-                    if (
-                        z["code"] == q
-                        and z["symbol"]
-                        == s["symbol"]
-                    ):
+                x["symbol"] = symbol
 
-                        return z, None
+                return x, None
 
-                return s, None
+        # ----------------------------------------------------
+        # fallback
+        # ----------------------------------------------------
 
-        return (
-            None,
-            f"找不到「{q}」，請確認股票代號。"
+        for suffix in [
+            ".TW",
+            ".TWO"
+        ]:
+
+            symbol = q + suffix
+
+            d = stock_history(symbol)
+
+            if d is not None:
+
+                return {
+                    "code": q,
+                    "name": q,
+                    "market": (
+                        "TWSE"
+                        if suffix == ".TW"
+                        else "TPEx"
+                    ),
+                    "symbol": symbol
+                }, None
+
+        return None, (
+            f"❌ 找不到股票 {q} "
+            f"或目前無法取得 Yahoo 資料。"
         )
 
     # --------------------------------------------------------
-    # 股票名稱完全符合
+    # 名稱
     # --------------------------------------------------------
 
-    exact = [
-        x for x in names
-        if q == x["name"]
+    exact_name = [
+        x for x in stocks
+        if x["name"] == q
     ]
 
-    if len(exact) == 1:
-
-        return exact[0], None
-
-    # --------------------------------------------------------
-    # 股票名稱部分符合
-    # --------------------------------------------------------
-
-    matches = [
-        x for x in names
+    partial_name = [
+        x for x in stocks
         if q in x["name"]
     ]
 
-    if len(matches) == 1:
+    candidates = (
+        exact_name
+        if exact_name
+        else partial_name
+    )
 
-        return matches[0], None
+    for x in candidates:
 
-    if matches:
-
-        return (
-            None,
-            "找到多檔符合：\n"
-            + "\n".join(
-                f"{x['code']} {x['name']} "
-                f"({x['market']})"
-                for x in matches[:10]
-            )
+        symbol = (
+            f'{x["code"]}.TW'
+            if x["market"] == "TWSE"
+            else
+            f'{x["code"]}.TWO'
         )
 
-    return (
-        None,
-        f"找不到「{q}」，請輸入正確台股代號或名稱。"
+        d = stock_history(symbol)
+
+        if d is not None:
+
+            x = x.copy()
+
+            x["symbol"] = symbol
+
+            return x, None
+
+    return None, (
+        f"❌ 找不到「{q}」對應股票。"
     )
 
 
@@ -774,46 +776,61 @@ def find_stock(q):
 
 def kd(d):
 
-    low9 = (
-        d.Low
-        .rolling(9)
-        .min()
-    )
+    high = d["High"]
 
-    high9 = (
-        d.High
-        .rolling(9)
-        .max()
+    low = d["Low"]
+
+    close = d["Close"]
+
+    low9 = low.rolling(
+        9
+    ).min()
+
+    high9 = high.rolling(
+        9
+    ).max()
+
+    denominator = (
+        high9 - low9
+    ).replace(
+        0,
+        np.nan
     )
 
     rsv = (
-        (d.Close - low9)
-        /
-        (high9 - low9)
-        .replace(0, np.nan)
+        (close - low9)
+        / denominator
         * 100
     )
 
     k = rsv.ewm(
-        alpha=1 / 3,
+        com=2,
         adjust=False
     ).mean()
+
+    j = (
+        3 * k
+        - 2 * k.ewm(
+            com=2,
+            adjust=False
+        ).mean()
+    )
 
     dline = k.ewm(
-        alpha=1 / 3,
+        com=2,
         adjust=False
     ).mean()
 
-    return k, dline
+    return k, dline, j
 
 
 # ============================================================
 # RSI
 # ============================================================
 
-def rsi(c, p):
+def rsi(close, p=14):
 
-    delta = c.diff()
+    delta = close.diff()
 
     gain = delta.clip(
         lower=0
@@ -833,34 +850,30 @@ def rsi(c, p):
         adjust=False
     ).mean()
 
-    rs = (
-        avg_gain
-        /
-        avg_loss.replace(
-            0,
-            np.nan
-        )
+    rs = avg_gain / avg_loss.replace(
+        0,
+        np.nan
     )
 
-    return (
-        100
-        -
+    result = 100 - (
         100 / (1 + rs)
     )
+
+    return result
 
 
 # ============================================================
 # MACD
 # ============================================================
 
-def macd(c):
+def macd(close):
 
-    ema12 = c.ewm(
+    ema12 = close.ewm(
         span=12,
         adjust=False
     ).mean()
 
-    ema26 = c.ewm(
+    ema26 = close.ewm(
         span=26,
         adjust=False
     ).mean()
@@ -874,466 +887,667 @@ def macd(c):
 
     hist = dif - dea
 
-    return (
-        dif,
-        dea,
-        hist
-    )
+    return dif, dea, hist
 
 
 # ============================================================
-# 趨勢判斷
+# 趨勢
 # ============================================================
 
-def trend(
-    s,
-    norm=True
-):
+def trend(s, norm=True):
 
-    s = s.dropna()
+    try:
 
-    if len(s) < 6:
+        if len(s) < 6:
+            return 0
 
-        return "資料不足"
-
-    current = float(
-        s.iloc[-1]
-    )
-
-    old = float(
-        s.iloc[-6]
-    )
-
-    diff = current - old
-
-    if norm:
-
-        if abs(old) < 0.01:
-
-            return "平穩"
-
-        change = (
-            diff
-            /
-            abs(old)
-            * 100
+        a = float(
+            s.iloc[-1]
         )
 
-        if change >= 8:
+        b = float(
+            s.iloc[-6]
+        )
 
-            return "強勢向上"
+        if pd.isna(a) or pd.isna(b):
+            return 0
 
-        if change >= 1:
+        if a > b:
+            return 1
 
-            return "溫和向上"
+        if a < b:
+            return -1
 
-        if change <= -8:
+        return 0
 
-            return "明顯向下"
+    except Exception:
 
-        if change <= -1:
-
-            return "略為向下"
-
-        return "平穩"
-
-    else:
-
-        if diff > 0.05:
-
-            return "強勢向上"
-
-        if diff > 0:
-
-            return "溫和向上"
-
-        if diff < -0.05:
-
-            return "明顯向下"
-
-        if diff < 0:
-
-            return "略為向下"
-
-        return "平穩"
+        return 0
 
 
 # ============================================================
 # 支撐
 # ============================================================
 
-def supports(d, p):
+def supports(d, price):
+
+    levels = []
+
+    low = d["Low"]
+
+    # 最近局部低點
+    try:
+
+        for i in range(
+            max(2, len(d) - 80),
+            len(d) - 2
+        ):
+
+            if (
+                low.iloc[i] <= low.iloc[i - 1]
+                and
+                low.iloc[i] <= low.iloc[i + 1]
+                and
+                low.iloc[i] < price
+            ):
+
+                levels.append(
+                    float(low.iloc[i])
+                )
+
+    except Exception:
+        pass
+
+    # 均線
+    for n in [
+        10,
+        20,
+        60
+    ]:
+
+        if len(d) >= n:
+
+            ma = (
+                d["Close"]
+                .rolling(n)
+                .mean()
+                .iloc[-1]
+            )
+
+            if (
+                pd.notna(ma)
+                and ma < price
+            ):
+
+                levels.append(
+                    float(ma)
+                )
+
+    # 近期低點
+    for n in [
+        20,
+        60
+    ]:
+
+        if len(d) >= n:
+
+            x = (
+                d["Low"]
+                .tail(n)
+                .min()
+            )
+
+            if (
+                pd.notna(x)
+                and x < price
+            ):
+
+                levels.append(
+                    float(x)
+                )
+
+    levels = sorted(
+        set(
+            round(x, 2)
+            for x in levels
+        ),
+        reverse=True
+    )
 
     result = []
 
-    lows = d.Low.tail(60)
+    for x in levels:
 
-    for i in range(
-        2,
-        len(lows) - 2
-    ):
+        if x < price:
 
-        v = lows.iloc[i]
+            if not result:
 
-        if (
-            v <= lows.iloc[i - 2:i].min()
-            and
-            v <= lows.iloc[i + 1:i + 3].min()
-            and
-            v < p
-        ):
+                result.append(x)
 
-            result.append(
-                float(v)
-            )
+            elif all(
+                abs(x - y)
+                / max(y, 0.01)
+                > 0.01
+                for y in result
+            ):
 
-    # 均線支撐
-    for ma in [
+                result.append(x)
 
-        d.Close
-        .rolling(10)
-        .mean()
-        .iloc[-1],
+        if len(result) >= 3:
+            break
 
-        d.Close
-        .rolling(20)
-        .mean()
-        .iloc[-1],
-
-        d.Close
-        .rolling(60)
-        .mean()
-        .iloc[-1]
-
-    ]:
-
-        if (
-            pd.notna(ma)
-            and ma < p
-        ):
-
-            result.append(
-                float(ma)
-            )
-
-    # 近期低點
-    for v in [
-
-        d.Low.tail(20).min(),
-
-        d.Low.tail(60).min()
-
-    ]:
-
-        if (
-            pd.notna(v)
-            and v < p
-        ):
-
-            result.append(
-                float(v)
-            )
-
-    return sorted(
-        set(
-            round(x, 2)
-            for x in result
-        ),
-        reverse=True
-    )[:3]
+    return result
 
 
 # ============================================================
 # 壓力
 # ============================================================
 
-def resistances(d, p):
+def resistances(d, price):
+
+    levels = []
+
+    high = d["High"]
+
+    # 最近局部高點
+    try:
+
+        for i in range(
+            max(2, len(d) - 80),
+            len(d) - 2
+        ):
+
+            if (
+                high.iloc[i] >= high.iloc[i - 1]
+                and
+                high.iloc[i] >= high.iloc[i + 1]
+                and
+                high.iloc[i] > price
+            ):
+
+                levels.append(
+                    float(high.iloc[i])
+                )
+
+    except Exception:
+        pass
+
+    # 均線
+    for n in [
+        10,
+        20,
+        60
+    ]:
+
+        if len(d) >= n:
+
+            ma = (
+                d["Close"]
+                .rolling(n)
+                .mean()
+                .iloc[-1]
+            )
+
+            if (
+                pd.notna(ma)
+                and ma > price
+            ):
+
+                levels.append(
+                    float(ma)
+                )
+
+    # 近期高點
+    for n in [
+        20,
+        60
+    ]:
+
+        if len(d) >= n:
+
+            x = (
+                d["High"]
+                .tail(n)
+                .max()
+            )
+
+            if (
+                pd.notna(x)
+                and x > price
+            ):
+
+                levels.append(
+                    float(x)
+                )
+
+    levels = sorted(
+        set(
+            round(x, 2)
+            for x in levels
+        )
+    )
 
     result = []
 
-    highs = d.High.tail(60)
+    for x in levels:
 
-    for i in range(
-        2,
-        len(highs) - 2
-    ):
+        if x > price:
 
-        v = highs.iloc[i]
+            if not result:
 
-        if (
-            v >= highs.iloc[i - 2:i].max()
-            and
-            v >= highs.iloc[i + 1:i + 3].max()
-            and
-            v > p
-        ):
+                result.append(x)
 
-            result.append(
-                float(v)
-            )
+            elif all(
+                abs(x - y)
+                / max(y, 0.01)
+                > 0.01
+                for y in result
+            ):
 
-    # 均線壓力
-    for ma in [
+                result.append(x)
 
-        d.Close
-        .rolling(10)
-        .mean()
-        .iloc[-1],
+        if len(result) >= 3:
+            break
 
-        d.Close
-        .rolling(20)
-        .mean()
-        .iloc[-1],
+    return result
 
-        d.Close
-        .rolling(60)
-        .mean()
-        .iloc[-1]
 
-    ]:
+# ============================================================
+# 三線共振
+# ============================================================
 
-        if (
-            pd.notna(ma)
-            and ma > p
-        ):
+def resonance(
+    close,
+    ma20,
+    kd_k,
+    rsi5,
+    dif
+):
 
-            result.append(
-                float(ma)
-            )
+    score = 0
 
-    # 近期高點
-    for v in [
+    # 股價 / MA20
+    if close > ma20:
+        score += 1
+    else:
+        score -= 1
 
-        d.High.tail(20).max(),
+    # KD
+    if kd_k >= 50:
+        score += 1
+    else:
+        score -= 1
 
-        d.High.tail(60).max()
+    # RSI
+    if rsi5 >= 50:
+        score += 1
+    else:
+        score -= 1
 
-    ]:
+    # MACD
+    if dif >= 0:
+        score += 1
+    else:
+        score -= 1
 
-        if (
-            pd.notna(v)
-            and v > p
-        ):
+    if score >= 3:
+        return "🔥 多方共振"
 
-            result.append(
-                float(v)
-            )
+    if score >= 1:
+        return "🟢 偏多"
 
-    return sorted(
-        set(
-            round(x, 2)
-            for x in result
-        )
-    )[:3]
+    if score <= -3:
+        return "🔴 空方共振"
+
+    return "🟡 震盪"
 
 
 # ============================================================
 # 個股分析
 # ============================================================
 
-def analyze_stock(s):
+def analyze_stock(stock):
 
-    d = stock_history(
-        s["symbol"]
-    )
+    symbol = stock["symbol"]
+
+    d = stock_history(symbol)
 
     if d is None:
 
-        return (
-            None,
-            "目前無法取得歷史資料，"
-            "可能是 Yahoo Finance 暫時無資料。"
+        return None, (
+            "❌ 無法取得股票歷史資料。"
         )
 
-    c = d.Close.astype(float)
-
-    v = d.Volume.astype(float)
+    close = d["Close"]
 
     price = float(
-        c.iloc[-1]
+        close.iloc[-1]
     )
 
     prev = float(
-        c.iloc[-2]
+        close.iloc[-2]
     )
 
-    gain = (
+    change = (
         price / prev - 1
-    ) * 100
+    ) * 100 if prev else np.nan
 
     # --------------------------------------------------------
     # 成交量
-    # 今天 / 前5個完整交易日平均
     # --------------------------------------------------------
 
-    avg5 = float(
-        v.iloc[-6:-1].mean()
+    today_volume = float(
+        d["Volume"].iloc[-1]
     )
 
+    if len(d) >= 6:
+
+        avg5 = float(
+            d["Volume"]
+            .iloc[-6:-1]
+            .mean()
+        )
+
+    else:
+
+        avg5 = np.nan
+
     volume_ratio = (
-        float(v.iloc[-1] / avg5)
-        if avg5 > 0
+        today_volume / avg5
+        if avg5 and avg5 > 0
         else np.nan
+    )
+
+    turnover = (
+        price * today_volume
     )
 
     # --------------------------------------------------------
     # 均線
     # --------------------------------------------------------
 
-    ma5 = float(
-        c.rolling(5)
+    ma5 = (
+        close
+        .rolling(5)
         .mean()
         .iloc[-1]
     )
 
-    ma10 = float(
-        c.rolling(10)
+    ma10 = (
+        close
+        .rolling(10)
         .mean()
         .iloc[-1]
     )
 
-    ma20 = float(
-        c.rolling(20)
+    ma20 = (
+        close
+        .rolling(20)
         .mean()
         .iloc[-1]
     )
 
-    ma60 = float(
-        c.rolling(60)
+    ma60 = (
+        close
+        .rolling(60)
         .mean()
         .iloc[-1]
     )
 
     dev10 = (
-        (price - ma10)
-        /
-        ma10
-        * 100
+        (price / ma10 - 1) * 100
+        if ma10
+        else np.nan
     )
 
     dev20 = (
-        (price - ma20)
-        /
-        ma20
-        * 100
+        (price / ma20 - 1) * 100
+        if ma20
+        else np.nan
     )
 
     # --------------------------------------------------------
-    # 技術指標
+    # KD
     # --------------------------------------------------------
 
-    k, dline = kd(d)
+    k, kd_d, j = kd(d)
 
-    r5 = rsi(c, 5)
+    k_now = float(
+        k.iloc[-1]
+    )
 
-    r10 = rsi(c, 10)
+    d_now = float(
+        kd_d.iloc[-1]
+    )
 
-    dif, dea, hist = macd(c)
-
-    kt = trend(k)
-
-    rt = trend(r5)
-
-    r10t = trend(r10)
-
-    mt = trend(
-        dif,
-        False
+    k_prev = float(
+        k.iloc[-2]
     )
 
     # --------------------------------------------------------
-    # 三線共振
+    # RSI
     # --------------------------------------------------------
 
-    resonance = (
+    rsi5_series = rsi(
+        close,
+        5
+    )
 
-        kt in {
-            "強勢向上",
-            "溫和向上"
-        }
+    rsi10_series = rsi(
+        close,
+        10
+    )
 
-        and
+    rsi5_now = float(
+        rsi5_series.iloc[-1]
+    )
 
-        rt in {
-            "強勢向上",
-            "溫和向上"
-        }
+    rsi10_now = float(
+        rsi10_series.iloc[-1]
+    )
 
-        and
+    rsi5_prev = float(
+        rsi5_series.iloc[-2]
+    )
 
-        mt in {
-            "強勢向上",
-            "溫和向上"
-        }
+    # --------------------------------------------------------
+    # MACD
+    # --------------------------------------------------------
 
+    dif_series, dea_series, hist_series = macd(
+        close
+    )
+
+    dif_now = float(
+        dif_series.iloc[-1]
+    )
+
+    dea_now = float(
+        dea_series.iloc[-1]
+    )
+
+    hist_now = float(
+        hist_series.iloc[-1]
+    )
+
+    dif_prev = float(
+        dif_series.iloc[-2]
     )
 
     # --------------------------------------------------------
     # 支撐 / 壓力
     # --------------------------------------------------------
 
-    ss = supports(
+    s_levels = supports(
         d,
         price
     )
 
-    rr = resistances(
+    r_levels = resistances(
         d,
         price
     )
+
+    while len(s_levels) < 3:
+        s_levels.append(np.nan)
+
+    while len(r_levels) < 3:
+        r_levels.append(np.nan)
 
     # --------------------------------------------------------
-    # 52週高
+    # 52週高點
     # --------------------------------------------------------
 
     high52 = float(
-        d.High.tail(252).max()
+        d["High"].tail(252).max()
     )
 
     distance52 = (
-        (high52 - price)
-        /
-        high52
+        (price / high52 - 1)
         * 100
-    )
-
-    # --------------------------------------------------------
-    # 20日漲幅
-    # --------------------------------------------------------
-
-    gain20 = (
-
-        (price / c.iloc[-21] - 1)
-        * 100
-
-        if len(c) >= 21
-
+        if high52
         else np.nan
-
     )
 
-    return {
+    # --------------------------------------------------------
+    # 20日漲跌
+    # --------------------------------------------------------
 
-        "stock": s,
+    if len(close) >= 21:
 
+        price20 = float(
+            close.iloc[-21]
+        )
+
+        gain20 = (
+            price / price20 - 1
+        ) * 100
+
+    else:
+
+        gain20 = np.nan
+
+    # --------------------------------------------------------
+    # 三線共振
+    # --------------------------------------------------------
+
+    resonance_text = resonance(
+        price,
+        ma20,
+        k_now,
+        rsi5_now,
+        dif_now
+    )
+
+    # --------------------------------------------------------
+    # 狀態
+    # --------------------------------------------------------
+
+    score = 0
+
+    if price > ma20:
+        score += 2
+    else:
+        score -= 2
+
+    if trend(close) > 0:
+        score += 1
+    else:
+        score -= 1
+
+    if k_now > d_now:
+        score += 1
+    else:
+        score -= 1
+
+    if rsi5_now >= 50:
+        score += 1
+    else:
+        score -= 1
+
+    if dif_now > dea_now:
+        score += 2
+    else:
+        score -= 2
+
+    if volume_ratio >= 1.8:
+        score += 1
+
+    if dev10 <= 8:
+        score += 1
+    else:
+        score -= 1
+
+    if dev20 <= 12:
+        score += 1
+    else:
+        score -= 1
+
+    if score >= 6:
+
+        status = "🟢 強勢"
+
+    elif score >= 3:
+
+        status = "🟡 偏多"
+
+    elif score <= -4:
+
+        status = "🔴 偏弱"
+
+    else:
+
+        status = "🟠 震盪"
+
+    # --------------------------------------------------------
+    # 追高風險
+    # --------------------------------------------------------
+
+    chase = []
+
+    if dev10 > 5:
+        chase.append(
+            "MA10乖離偏高"
+        )
+
+    if dev20 > 8:
+        chase.append(
+            "MA20乖離偏高"
+        )
+
+    if rsi5_now >= 75:
+        chase.append(
+            "RSI偏熱"
+        )
+
+    if distance52 >= -2:
+        chase.append(
+            "接近52週高點"
+        )
+
+    if chase:
+
+        chase_text = (
+            "⚠️ "
+            + "、".join(chase)
+        )
+
+    else:
+
+        chase_text = (
+            "✅ 暫無明顯追高警訊"
+        )
+
+    result = {
+
+        "stock": stock,
         "price": price,
+        "change": change,
 
-        "gain": gain,
-
-        "today": int(
-            v.iloc[-1] / 1000
-        ),
-
-        "avg5": int(
-            avg5 / 1000
-        ),
-
-        "vr": volume_ratio,
-
-        "turn": (
-            price
-            * float(v.iloc[-1])
-        ),
+        "today_volume": today_volume,
+        "avg5": avg5,
+        "volume_ratio": volume_ratio,
+        "turnover": turnover,
 
         "ma5": ma5,
         "ma10": ma10,
@@ -1343,100 +1557,121 @@ def analyze_stock(s):
         "dev10": dev10,
         "dev20": dev20,
 
-        "k": float(
-            k.iloc[-1]
-        ),
+        "k": k_now,
+        "d": d_now,
+        "j": float(j.iloc[-1]),
 
-        "d": float(
-            dline.iloc[-1]
-        ),
+        "rsi5": rsi5_now,
+        "rsi10": rsi10_now,
 
-        "kt": kt,
+        "dif": dif_now,
+        "dea": dea_now,
+        "hist": hist_now,
 
-        "r5": float(
-            r5.iloc[-1]
-        ),
+        "supports": s_levels,
+        "resistances": r_levels,
 
-        "r10": float(
-            r10.iloc[-1]
-        ),
+        "high52": high52,
+        "distance52": distance52,
 
-        "rt": rt,
-        "r10t": r10t,
+        "gain20": gain20,
 
-        "dif": float(
-            dif.iloc[-1]
-        ),
+        "resonance": resonance_text,
 
-        "dea": float(
-            dea.iloc[-1]
-        ),
+        "score": score,
+        "status": status,
 
-        "mt": mt,
+        "chase": chase_text
+    }
 
-        "res": resonance,
+    return result, None
 
-        "s1": (
-            ss[0]
-            if len(ss) > 0
-            else np.nan
-        ),
 
-        "s2": (
-            ss[1]
-            if len(ss) > 1
-            else np.nan
-        ),
+# ============================================================
+# 個股報告
+# ============================================================
 
-        "s3": (
-            ss[2]
-            if len(ss) > 2
-            else np.nan
-        ),
+def stock_report(x):
 
-        "r1": (
-            rr[0]
-            if len(rr) > 0
-            else np.nan
-        ),
+    s = x["stock"]
 
-        "r2": (
-            rr[1]
-            if len(rr) > 1
-            else np.nan
-        ),
+    sup = x["supports"]
 
-        "r3": (
-            rr[2]
-            if len(rr) > 2
-            else np.nan
-        ),
+    res = x["resistances"]
 
-        "sd": (
-            (price - ss[0])
-            /
-            price
-            * 100
-            if ss
-            else np.nan
-        ),
+    return f"""
+<b>📊 台股技術分析 6.1</b>
 
-        "rd": (
-            (rr[0] - price)
-            /
-            price
-            * 100
-            if rr
-            else np.nan
-        ),
+<b>{s["code"]} {s["name"]}</b>
+市場：{s["market"]}
 
-        "h52": high52,
+💰 現價：<b>{fmt(x["price"])}</b>
+{icon(x["change"])} 今日：<b>{pct(x["change"])}</b>
+📈 20日：{pct(x["gain20"])}
 
-        "dist": distance52,
+━━━━━━━━━━━━━━
+<b>📦 成交量</b>
 
-        "g20": gain20
+今日量：{fmt(x["today_volume"] / 1000, 0)} 張
+5日均量：{fmt(x["avg5"] / 1000, 0)} 張
+量比：<b>{fmt(x["volume_ratio"], 2)} 倍</b>
+成交金額：約 {fmt(x["turnover"] / 100000000, 2)} 億
 
-    }, None
+━━━━━━━━━━━━━━
+<b>📐 均線</b>
+
+MA5：{fmt(x["ma5"])}
+MA10：{fmt(x["ma10"])}
+MA20：{fmt(x["ma20"])}
+MA60：{fmt(x["ma60"])}
+
+MA10乖離：{pct(x["dev10"])}
+MA20乖離：{pct(x["dev20"])}
+
+━━━━━━━━━━━━━━
+<b>📈 技術指標</b>
+
+KD：K {fmt(x["k"])} ／ D {fmt(x["d"])}
+J：{fmt(x["j"])}
+
+RSI5：{fmt(x["rsi5"])}
+RSI10：{fmt(x["rsi10"])}
+
+MACD DIF：{fmt(x["dif"])}
+MACD DEA：{fmt(x["dea"])}
+MACD柱：{fmt(x["hist"])}
+
+━━━━━━━━━━━━━━
+<b>🎯 支撐 / 壓力</b>
+
+S1：{fmt(sup[0])}
+S2：{fmt(sup[1])}
+S3：{fmt(sup[2])}
+
+R1：{fmt(res[0])}
+R2：{fmt(res[1])}
+R3：{fmt(res[2])}
+
+━━━━━━━━━━━━━━
+<b>📊 趨勢判斷</b>
+
+三線共振：{x["resonance"]}
+技術評分：<b>{x["score"]}</b>
+目前狀態：<b>{x["status"]}</b>
+
+━━━━━━━━━━━━━━
+<b>🏔 52週位置</b>
+
+52週高點：{fmt(x["high52"])}
+距離52週高點：{pct(x["distance52"])}
+
+━━━━━━━━━━━━━━
+
+{x["chase"]}
+
+<i>資料來源：Yahoo Finance
+技術分析僅供參考，非投資建議。</i>
+""".strip()
 
 
 # ============================================================
@@ -1452,1001 +1687,681 @@ def analyze_market():
 
     if d is None:
 
-        return (
-            None,
-            "目前無法取得加權指數歷史資料。"
+        return None, (
+            "❌ 無法取得台股大盤資料。"
         )
 
-    c = d.Close.astype(float)
+    close = d["Close"]
 
     price = float(
-        c.iloc[-1]
+        close.iloc[-1]
     )
 
     prev = float(
-        c.iloc[-2]
+        close.iloc[-2]
     )
 
-    gain = (
+    change = (
         price / prev - 1
     ) * 100
-
-    gain20 = (
-        (price / c.iloc[-21] - 1)
-        * 100
-    )
 
     # --------------------------------------------------------
     # 均線
     # --------------------------------------------------------
 
-    ma5 = float(
-        c.rolling(5)
+    ma5 = (
+        close
+        .rolling(5)
         .mean()
         .iloc[-1]
     )
 
-    ma10 = float(
-        c.rolling(10)
+    ma10 = (
+        close
+        .rolling(10)
         .mean()
         .iloc[-1]
     )
 
-    ma20 = float(
-        c.rolling(20)
+    ma20 = (
+        close
+        .rolling(20)
         .mean()
         .iloc[-1]
     )
 
-    ma60 = float(
-        c.rolling(60)
+    ma60 = (
+        close
+        .rolling(60)
         .mean()
         .iloc[-1]
     )
 
     dev10 = (
-        (price - ma10)
-        /
-        ma10
+        (price / ma10 - 1)
         * 100
     )
 
     dev20 = (
-        (price - ma20)
-        /
-        ma20
+        (price / ma20 - 1)
         * 100
     )
 
     # --------------------------------------------------------
-    # 技術指標
+    # KD
     # --------------------------------------------------------
 
-    k, dline = kd(d)
+    k, kd_d, j = kd(d)
 
-    r5 = rsi(
-        c,
+    k_now = float(
+        k.iloc[-1]
+    )
+
+    d_now = float(
+        kd_d.iloc[-1]
+    )
+
+    # --------------------------------------------------------
+    # RSI
+    # --------------------------------------------------------
+
+    rsi5_series = rsi(
+        close,
         5
     )
 
-    r10 = rsi(
-        c,
+    rsi10_series = rsi(
+        close,
         10
     )
 
-    dif, dea, hist = macd(c)
+    rsi5_now = float(
+        rsi5_series.iloc[-1]
+    )
 
-    kt = trend(k)
-
-    rt = trend(r5)
-
-    r10t = trend(r10)
-
-    mt = trend(
-        dif,
-        True
+    rsi10_now = float(
+        rsi10_series.iloc[-1]
     )
 
     # --------------------------------------------------------
-    # 支撐壓力
+    # MACD
     # --------------------------------------------------------
 
-    ss = supports(
+    dif_series, dea_series, hist_series = macd(
+        close
+    )
+
+    dif_now = float(
+        dif_series.iloc[-1]
+    )
+
+    dea_now = float(
+        dea_series.iloc[-1]
+    )
+
+    hist_now = float(
+        hist_series.iloc[-1]
+    )
+
+    # --------------------------------------------------------
+    # 支撐 / 壓力
+    # --------------------------------------------------------
+
+    s_levels = supports(
         d,
         price
     )
 
-    rr = resistances(
+    r_levels = resistances(
         d,
         price
     )
 
+    while len(s_levels) < 3:
+        s_levels.append(np.nan)
+
+    while len(r_levels) < 3:
+        r_levels.append(np.nan)
+
     # --------------------------------------------------------
-    # 52週高
+    # 52週高點
     # --------------------------------------------------------
 
     high52 = float(
-        d.High.tail(252).max()
+        d["High"].tail(252).max()
     )
 
     distance52 = (
-        (high52 - price)
-        /
-        high52
+        (price / high52 - 1)
         * 100
     )
 
     # --------------------------------------------------------
-    # 大盤成交量
-    #
-    # ^TWII 有些 Yahoo 資料沒有 Volume
-    # 因此不能把 Volume 當成大盤分析必要條件
+    # 20日漲跌
+    # --------------------------------------------------------
+
+    if len(close) >= 21:
+
+        gain20 = (
+            price
+            / float(close.iloc[-21])
+            - 1
+        ) * 100
+
+    else:
+
+        gain20 = np.nan
+
+    # --------------------------------------------------------
+    # 市場成交量
     # --------------------------------------------------------
 
     volume_ratio = np.nan
-
-    volume_change = np.nan
 
     if "Volume" in d.columns:
 
         volume = pd.to_numeric(
             d["Volume"],
             errors="coerce"
-        ).fillna(0)
-
-        avg5 = float(
-            volume.iloc[-6:-1].mean()
         )
 
-        if avg5 > 0:
+        if len(volume) >= 6:
 
-            volume_ratio = (
-                float(
-                    volume.iloc[-1]
-                )
-                /
-                avg5
+            avg5 = float(
+                volume
+                .iloc[-6:-1]
+                .mean()
             )
 
-            volume_change = (
-                float(
-                    volume.iloc[-1]
+            today_volume = float(
+                volume.iloc[-1]
+            )
+
+            if avg5 > 0:
+
+                volume_ratio = (
+                    today_volume / avg5
                 )
-                /
-                avg5
-                - 1
-            ) * 100
 
     # --------------------------------------------------------
-    # 大盤評分
+    # 評分
     # --------------------------------------------------------
 
     score = 0
 
-    reasons = []
-
-    # MA20
     if price > ma20:
-
         score += 2
-
-        reasons.append(
-            "指數站上MA20"
-        )
-
     else:
-
         score -= 2
 
-        reasons.append(
-            "指數跌破MA20"
-        )
-
-    # MA20方向
-    ma20_prev = float(
-        c.rolling(20)
-        .mean()
-        .iloc[-6]
-    )
-
-    if ma20 > ma20_prev:
-
+    if trend(close) > 0:
         score += 2
-
-        reasons.append(
-            "MA20向上"
-        )
-
     else:
-
         score -= 2
 
-        reasons.append(
-            "MA20向下"
-        )
-
-    # KD
-    if kt in {
-        "強勢向上",
-        "溫和向上"
-    }:
-
+    if k_now > d_now:
         score += 1
-
-        reasons.append(
-            "KD偏多"
-        )
-
-    elif kt in {
-        "略為向下",
-        "明顯向下"
-    }:
-
+    else:
         score -= 1
 
-        reasons.append(
-            "KD轉弱"
-        )
-
-    # RSI
-    if rt in {
-        "強勢向上",
-        "溫和向上"
-    }:
-
+    if rsi5_now >= 50:
         score += 1
-
-        reasons.append(
-            "RSI5偏多"
-        )
-
-    elif rt in {
-        "略為向下",
-        "明顯向下"
-    }:
-
+    else:
         score -= 1
 
-        reasons.append(
-            "RSI5轉弱"
-        )
-
-    # MACD
-    if mt in {
-        "強勢向上",
-        "溫和向上"
-    }:
-
+    if dif_now > dea_now:
         score += 2
-
-        reasons.append(
-            "MACD DIF向上"
-        )
-
-    elif mt in {
-        "略為向下",
-        "明顯向下"
-    }:
-
+    else:
         score -= 2
 
-        reasons.append(
-            "MACD DIF轉弱"
-        )
-
-    # 20日
     if gain20 > 3:
-
         score += 1
 
     elif gain20 < -3:
-
         score -= 1
 
     # --------------------------------------------------------
-    # 大盤環境
+    # 市場狀態
     # --------------------------------------------------------
 
     if score >= 5:
 
         status = "🟢 偏多"
 
-        advice = (
-            "可積極尋找強勢股，"
-            "優先挑量價齊揚、"
-            "站上均線且未過度乖離者。"
-        )
-
     elif score >= 2:
 
         status = "🟡 震盪偏多"
-
-        advice = (
-            "可以做個股，"
-            "但建議挑強勢股，"
-            "不宜全面追高。"
-        )
 
     elif score <= -5:
 
         status = "🔴 偏空"
 
-        advice = (
-            "大盤環境偏弱，"
-            "建議降低追高，"
-            "等待轉強訊號。"
-        )
-
     else:
 
         status = "🟠 震盪"
 
-        advice = (
-            "大盤方向不明，"
-            "適合個別選股，"
-            "不宜因短線反彈全面追價。"
-        )
-
     # --------------------------------------------------------
-    # 追價風險
+    # 追高風險
     # --------------------------------------------------------
 
     warnings_list = []
 
     if dev10 > 5:
-
         warnings_list.append(
-            "指數高於MA10較多"
+            "大盤乖離MA10偏高"
         )
 
     if dev20 > 8:
-
         warnings_list.append(
-            "指數高於MA20較多"
+            "大盤乖離MA20偏高"
         )
 
-    if float(r5.iloc[-1]) >= 75:
-
+    if rsi5_now >= 75:
         warnings_list.append(
-            "RSI5偏熱"
+            "RSI偏熱"
         )
 
-    if distance52 <= 2:
-
+    if distance52 >= -2:
         warnings_list.append(
-            "接近52週高"
+            "接近52週高點"
         )
 
     if warnings_list:
 
-        chase = "⚠️ 追價風險較高"
-
-        chase_detail = (
-            "、".join(
+        risk = (
+            "⚠️ "
+            + "、".join(
                 warnings_list
             )
         )
 
     else:
 
-        chase = "🟢 追價壓力尚可"
-
-        chase_detail = (
-            "目前未出現明顯過熱訊號"
+        risk = (
+            "✅ 暫無明顯過熱訊號"
         )
 
-    return {
+    result = {
 
         "price": price,
-
-        "gain": gain,
-
-        "g20": gain20,
-
-        "volume_ratio": volume_ratio,
-
-        "volume_change": volume_change,
+        "change": change,
+        "gain20": gain20,
 
         "ma5": ma5,
-
         "ma10": ma10,
-
         "ma20": ma20,
-
         "ma60": ma60,
 
         "dev10": dev10,
-
         "dev20": dev20,
 
-        "k": float(
-            k.iloc[-1]
-        ),
+        "k": k_now,
+        "d": d_now,
+        "j": float(j.iloc[-1]),
 
-        "d": float(
-            dline.iloc[-1]
-        ),
+        "rsi5": rsi5_now,
+        "rsi10": rsi10_now,
 
-        "kt": kt,
+        "dif": dif_now,
+        "dea": dea_now,
+        "hist": hist_now,
 
-        "r5": float(
-            r5.iloc[-1]
-        ),
+        "supports": s_levels,
+        "resistances": r_levels,
 
-        "r10": float(
-            r10.iloc[-1]
-        ),
+        "high52": high52,
+        "distance52": distance52,
 
-        "rt": rt,
-
-        "r10t": r10t,
-
-        "dif": float(
-            dif.iloc[-1]
-        ),
-
-        "dea": float(
-            dea.iloc[-1]
-        ),
-
-        "hist": float(
-            hist.iloc[-1]
-        ),
-
-        "mt": mt,
-
-        "s1": (
-            ss[0]
-            if len(ss) > 0
-            else np.nan
-        ),
-
-        "s2": (
-            ss[1]
-            if len(ss) > 1
-            else np.nan
-        ),
-
-        "s3": (
-            ss[2]
-            if len(ss) > 2
-            else np.nan
-        ),
-
-        "r1": (
-            rr[0]
-            if len(rr) > 0
-            else np.nan
-        ),
-
-        "r2": (
-            rr[1]
-            if len(rr) > 1
-            else np.nan
-        ),
-
-        "r3": (
-            rr[2]
-            if len(rr) > 2
-            else np.nan
-        ),
-
-        "h52": high52,
-
-        "dist52": distance52,
+        "volume_ratio": volume_ratio,
 
         "score": score,
-
         "status": status,
 
-        "advice": advice,
+        "risk": risk
+    }
 
-        "chase": chase,
-
-        "chase_detail": chase_detail,
-
-        "reasons": reasons
-
-    }, None
+    return result, None
 
 
 # ============================================================
-# 個股 Telegram 報告
-# ============================================================
-
-def stock_report(x):
-
-    return f"""
-<b>📊 Taiwan Stock Radar 6.1</b>
-<b>#{x['stock']['code']}｜{x['stock']['name']}｜{x['stock']['market']}</b>
-
-📅 {now():%Y/%m/%d %H:%M}
-
-━━━━━━━━━━━━━━
-
-💰 <b>現價：{fmt(x['price'])}</b>
-
-📈 今日：{pct(x['gain'])}
-📈 20日：{pct(x['g20'])}
-
-<b>🔊 量能</b>
-
-今日量：{x['today']:,} 張
-5日均量：{x['avg5']:,} 張
-量比：{fmt(x['vr'],2)}x
-成交金額：{x['turn']/1e8:.2f} 億
-
-<b>🟢 支撐</b>
-
-S1：<b>{fmt(x['s1'])}</b>
-S2：{fmt(x['s2'])}
-S3：{fmt(x['s3'])}
-
-距S1：{pct(x['sd'])}
-
-<b>🔴 壓力</b>
-
-R1：<b>{fmt(x['r1'])}</b>
-R2：{fmt(x['r2'])}
-R3：{fmt(x['r3'])}
-
-距R1：{pct(x['rd'])}
-
-<b>📐 均線</b>
-
-MA5：{fmt(x['ma5'])}
-
-MA10：{fmt(x['ma10'])}
-乖離：{pct(x['dev10'])}
-
-MA20：{fmt(x['ma20'])}
-乖離：{pct(x['dev20'])}
-
-MA60：{fmt(x['ma60'])}
-
-<b>📊 技術指標</b>
-
-KD 9K：
-{icon(x['kt'])} {x['kt']}
-K={fmt(x['k'])}
-D={fmt(x['d'])}
-
-RSI 5T：
-{icon(x['rt'])} {x['rt']}
-{fmt(x['r5'])}
-
-RSI 10T：
-{icon(x['r10t'])} {x['r10t']}
-{fmt(x['r10'])}
-
-MACD DIF：
-{icon(x['mt'])} {x['mt']}
-{fmt(x['dif'],3)}
-
-{"🔥 三線共振" if x["res"] else "— 尚未形成完整三線共振"}
-
-📌 52週高：
-{fmt(x['h52'])}
-
-📌 距52週高：
-{pct(x['dist'])}
-
-━━━━━━━━━━━━━━
-
-⚠️ 技術分析僅供參考，
-不代表買賣建議。
-"""
-
-
-# ============================================================
-# 大盤 Telegram 報告
+# 大盤報告
 # ============================================================
 
 def market_report(x):
 
+    sup = x["supports"]
+
+    res = x["resistances"]
+
     volume_text = (
-        f"量比：{fmt(x['volume_ratio'],2)}x\n"
-        f"較5日均量：{pct(x['volume_change'])}"
+        f"{fmt(x['volume_ratio'], 2)} 倍"
+        if pd.notna(x["volume_ratio"])
+        else "資料無法取得"
     )
 
-    if pd.isna(
-        x["volume_ratio"]
-    ):
-
-        volume_text = (
-            "量比：—\n"
-            "較5日均量：—\n"
-            "※ Yahoo ^TWII 成交量資料不足，"
-            "不影響大盤技術分析"
-        )
-
     return f"""
-<b>🇹🇼 6.1 台股大盤技術分析</b>
+<b>🇹🇼 台股大盤技術分析 6.1</b>
 
-<b>加權指數｜TAIEX</b>
+<b>加權指數 TAIEX</b>
 
-📅 {now():%Y/%m/%d %H:%M}
+💰 現在：<b>{fmt(x["price"])}</b>
+{icon(x["change"])} 今日：<b>{pct(x["change"])}</b>
+📈 20日：{pct(x["gain20"])}
 
 ━━━━━━━━━━━━━━
+<b>📦 大盤成交量</b>
 
-💰 <b>目前指數：{fmt(x['price'])}</b>
+量比：<b>{volume_text}</b>
 
-📈 今日：
-{pct(x['gain'])}
-
-📈 20日：
-{pct(x['g20'])}
-
-<b>🔊 大盤量能</b>
-
-{volume_text}
-
+━━━━━━━━━━━━━━
 <b>📐 均線</b>
 
-MA5：{fmt(x['ma5'])}
+MA5：{fmt(x["ma5"])}
+MA10：{fmt(x["ma10"])}
+MA20：{fmt(x["ma20"])}
+MA60：{fmt(x["ma60"])}
 
-MA10：
-{fmt(x['ma10'])}
-乖離：{pct(x['dev10'])}
+MA10乖離：{pct(x["dev10"])}
+MA20乖離：{pct(x["dev20"])}
 
-MA20：
-{fmt(x['ma20'])}
-乖離：{pct(x['dev20'])}
+━━━━━━━━━━━━━━
+<b>📈 技術指標</b>
 
-MA60：
-{fmt(x['ma60'])}
+KD：K {fmt(x["k"])} ／ D {fmt(x["d"])}
+J：{fmt(x["j"])}
 
-<b>📊 技術指標</b>
+RSI5：{fmt(x["rsi5"])}
+RSI10：{fmt(x["rsi10"])}
 
-KD 9K：
-{icon(x['kt'])} {x['kt']}
-K={fmt(x['k'])}
-D={fmt(x['d'])}
+MACD DIF：{fmt(x["dif"])}
+MACD DEA：{fmt(x["dea"])}
+MACD柱：{fmt(x["hist"])}
 
-RSI 5T：
-{icon(x['rt'])} {x['rt']}
-{fmt(x['r5'])}
+━━━━━━━━━━━━━━
+<b>🎯 大盤支撐 / 壓力</b>
 
-RSI 10T：
-{icon(x['r10t'])} {x['r10t']}
-{fmt(x['r10'])}
+S1：{fmt(sup[0])}
+S2：{fmt(sup[1])}
+S3：{fmt(sup[2])}
 
-MACD DIF：
-{icon(x['mt'])} {x['mt']}
-{fmt(x['dif'],2)}
+R1：{fmt(res[0])}
+R2：{fmt(res[1])}
+R3：{fmt(res[2])}
 
-<b>🟢 大盤支撐</b>
+━━━━━━━━━━━━━━
+<b>🏔 52週位置</b>
 
-S1：<b>{fmt(x['s1'],0)}</b>
-S2：{fmt(x['s2'],0)}
-S3：{fmt(x['s3'],0)}
+52週高點：{fmt(x["high52"])}
+距離52週高點：{pct(x["distance52"])}
 
-<b>🔴 大盤壓力</b>
+━━━━━━━━━━━━━━
+<b>📊 大盤判斷</b>
 
-R1：<b>{fmt(x['r1'],0)}</b>
-R2：{fmt(x['r2'],0)}
-R3：{fmt(x['r3'],0)}
+技術評分：<b>{x["score"]}</b>
+市場狀態：<b>{x["status"]}</b>
 
-📌 52週高：
-{fmt(x['h52'],0)}
-
-📌 距52週高：
-{pct(x['dist52'])}
+{x["risk"]}
 
 ━━━━━━━━━━━━━━
 
-<b>🎯 大盤環境：
-{x['status']}</b>
-
-評分：
-{x['score']:+d} 分
-
-💡 <b>操作參考</b>
-
-{x['advice']}
-
-<b>{x['chase']}</b>
-
-{x['chase_detail']}
-
-📝 主要判斷：
-
-{"、".join(x['reasons'])}
-
-━━━━━━━━━━━━━━
-
-⚠️ 大盤分析僅供技術面參考，
-不代表買賣建議。
-"""
+<i>資料來源：Yahoo Finance
+大盤資料為日線技術分析，僅供參考。</i>
+""".strip()
 
 
 # ============================================================
-# Help
+# 使用說明
 # ============================================================
 
 def help_text():
 
     return """
-<b>📊 Taiwan Stock Radar 6.1</b>
-
-━━━━━━━━━━━━━━
-
-<b>📈 個股分析</b>
+<b>📊 台股技術分析機器人 6.1</b>
 
 直接輸入：
 
 <code>3563</code>
-
-或：
+→ 分析牧德
 
 <code>牧德</code>
-
-也可以：
+→ 分析牧德
 
 <code>/分析 3563</code>
+→ 分析3563
 
 <code>/分析 牧德</code>
+→ 分析牧德
 
-━━━━━━━━━━━━━━
-
-<b>🇹🇼 大盤分析</b>
-
-直接輸入：
+<b>大盤：</b>
 
 <code>大盤</code>
-
-<code>台股大盤</code>
-
+<code>台股</code>
 <code>加權</code>
-
-<code>加權指數</code>
-
+<code>TWII</code>
 <code>TAIEX</code>
 
-<code>TWII</code>
-
-<code>^TWII</code>
-
-也可以：
-
-<code>/分析 大盤</code>
+→ 分析台股大盤
 
 ━━━━━━━━━━━━━━
 
-<b>📊 分析內容</b>
+<b>個股分析包含：</b>
 
-現價
-今日漲跌
-20日漲跌
+• 現價
+• 今日漲跌
+• 今日成交量
+• 5日平均成交量
+• 量比
+• MA5 / MA10 / MA20 / MA60
+• MA10 / MA20乖離
+• KD
+• RSI5 / RSI10
+• MACD
+• 三線共振
+• 支撐 S1～S3
+• 壓力 R1～R3
+• 52週高點
+• 距離52週高點
+• 20日漲跌
 
-今日量
-5日均量
-量比
+<b>這不是回測機器人。</b>
 
-MA5
-MA10
-MA20
-MA60
-
-KD
-RSI
-MACD
-
-支撐
-壓力
-
-52週高
-距52週高
-
-大盤多空環境
-
-━━━━━━━━━━━━━━
-
-<b>⚠️ 本 Bot 為技術分析工具，
-不代表買賣建議。</b>
-"""
+不需要輸入日期。
+不需要 SINGLE / MULTI / ALL。
+不會計算未來報酬。
+""".strip()
 
 
 # ============================================================
-# Telegram 訊息處理
+# Telegram Update
 # ============================================================
 
 def handle_update(u):
 
-    message = u.get(
-        "message",
-        {}
-    )
+    try:
 
-    chat = message.get(
-        "chat",
-        {}
-    )
-
-    chat_id = chat.get(
-        "id"
-    )
-
-    text = str(
-        message.get(
-            "text",
-            ""
-        )
-    ).strip()
-
-    if not chat_id or not text:
-
-        return
-
-    log(
-        "📨 收到訊息：",
-        text,
-        "chat_id=",
-        chat_id
-    )
-
-    # --------------------------------------------------------
-    # /start /help
-    # --------------------------------------------------------
-
-    if (
-        text.startswith("/start")
-        or
-        text.startswith("/help")
-    ):
-
-        send(
-            chat_id,
-            help_text()
+        message = u.get(
+            "message",
+            {}
         )
 
-        return
-
-    # --------------------------------------------------------
-    # 指令解析
-    # --------------------------------------------------------
-
-    if text.startswith("/分析"):
-
-        q = text[3:].strip()
-
-    elif text.lower().startswith(
-        "/analyze"
-    ):
-
-        q = text[8:].strip()
-
-    elif text.startswith(
-        "/分析大盤"
-    ):
-
-        q = "大盤"
-
-    else:
-
-        q = text.strip()
-
-    q = q.replace(
-        "\u3000",
-        ""
-    )
-
-    log(
-        "🔎 查詢內容：",
-        repr(q)
-    )
-
-    # --------------------------------------------------------
-    # 空白
-    # --------------------------------------------------------
-
-    if not q:
-
-        send(
-            chat_id,
-            help_text()
+        chat = message.get(
+            "chat",
+            {}
         )
 
-        return
+        chat_id = chat.get(
+            "id"
+        )
 
-    # ========================================================
-    # ⭐⭐⭐ 大盤判斷必須優先
-    # ========================================================
+        text = str(
+            message.get(
+                "text",
+                ""
+            )
+        ).strip()
 
-    if is_market_query(q):
+        if not chat_id or not text:
+
+            return
 
         log(
-            "🇹🇼 偵測到大盤查詢：",
-            q
+            f"📨 收到訊息：{text} "
+            f"chat_id={chat_id}"
         )
+
+        # ----------------------------------------------------
+        # Help
+        # ----------------------------------------------------
+
+        if (
+            text.startswith("/start")
+            or
+            text.startswith("/help")
+        ):
+
+            send(
+                chat_id,
+                help_text()
+            )
+
+            return
+
+        # ----------------------------------------------------
+        # 取得查詢內容
+        # ----------------------------------------------------
+
+        q = text
+
+        if text.startswith(
+            "/分析"
+        ):
+
+            q = text[
+                len("/分析"):
+            ].strip()
+
+        elif text.lower().startswith(
+            "/analyze"
+        ):
+
+            q = text[
+                len("/analyze"):
+            ].strip()
+
+        elif text.startswith(
+            "/分析大盤"
+        ):
+
+            q = "大盤"
+
+        q = q.replace(
+            "\u3000",
+            ""
+        ).strip()
+
+        # ----------------------------------------------------
+        # 大盤
+        # ----------------------------------------------------
+
+        if is_market_query(q):
+
+            send(
+                chat_id,
+                "📡 正在抓取台股大盤 TAIEX 技術資料...\n"
+                "請稍候。"
+            )
+
+            result, err = analyze_market()
+
+            if err:
+
+                send(
+                    chat_id,
+                    err
+                )
+
+                return
+
+            send(
+                chat_id,
+                market_report(result)
+            )
+
+            return
+
+        # ----------------------------------------------------
+        # 個股
+        # ----------------------------------------------------
 
         send(
             chat_id,
-            "🔎 正在抓取 "
-            "<b>台股大盤 TAIEX</b>"
-            " 技術資料，請稍候..."
+            f"🔎 正在分析：<b>{q}</b>\n"
+            f"📡 正在抓取最新技術資料..."
         )
 
-        x, err = analyze_market()
+        stock, err = find_stock(q)
 
         if err:
 
             send(
                 chat_id,
-                "⚠️ " + err
+                err
+            )
+
+            return
+
+        if stock is None:
+
+            send(
+                chat_id,
+                "❌ 找不到這檔股票。"
+            )
+
+            return
+
+        log(
+            f"🎯 找到股票："
+            f"{stock['code']} "
+            f"{stock['name']} "
+            f"{stock['symbol']}"
+        )
+
+        result, err = analyze_stock(
+            stock
+        )
+
+        if err:
+
+            send(
+                chat_id,
+                err
             )
 
             return
 
         send(
             chat_id,
-            market_report(x)
+            stock_report(result)
         )
+
+    except Exception as e:
 
         log(
-            "✅ 大盤分析完成"
+            f"❌ handle_update 錯誤：{e}"
         )
 
-        return
+        try:
 
-    # ========================================================
-    # 個股
-    # ========================================================
+            if chat_id:
 
-    log(
-        "📊 偵測為個股查詢：",
-        q
-    )
+                send(
+                    chat_id,
+                    "❌ 分析時發生錯誤，"
+                    "請稍後再試。"
+                )
 
-    send(
-        chat_id,
-        f"🔎 正在分析 "
-        f"<b>{q}</b>"
-        "，請稍候..."
-    )
-
-    stock, err = find_stock(q)
-
-    if err:
-
-        send(
-            chat_id,
-            "⚠️ " + err
-        )
-
-        return
-
-    log(
-        "🔎 找到股票：",
-        stock
-    )
-
-    x, err = analyze_stock(
-        stock
-    )
-
-    if err:
-
-        send(
-            chat_id,
-            f"⚠️ "
-            f"{stock['code']} "
-            f"{stock['name']}\n"
-            f"{err}"
-        )
-
-        return
-
-    send(
-        chat_id,
-        stock_report(x)
-    )
-
-    log(
-        "✅ 個股分析完成：",
-        stock["code"],
-        stock["name"]
-    )
+        except Exception:
+            pass
 
 
 # ============================================================
@@ -2455,24 +2370,15 @@ def handle_update(u):
 
 def main():
 
-    log(
-        "======================================"
-    )
+    print("")
+    print("=" * 70)
+    print("🚀 Taiwan Stock Radar 6.1")
+    print("🚀 TECHNICAL ANALYSIS BOT")
+    print("🚫 NOT BACKTEST")
+    print("=" * 70)
 
     log(
-        "📊 Taiwan Stock Radar 6.1"
-    )
-
-    log(
-        "📈 即時技術分析版"
-    )
-
-    log(
-        "🇹🇼 上市 + 上櫃 + ^TWII"
-    )
-
-    log(
-        "======================================"
+        f"版本：{VERSION}"
     )
 
     # --------------------------------------------------------
@@ -2482,27 +2388,39 @@ def main():
     if not TOKEN:
 
         log(
-            "❌ BOT TOKEN 未讀取"
-        )
-
-        log(
-            "請檢查 GitHub Secret："
-            "BACKTEST_TELEGRAM_BOT_TOKEN"
+            "❌ BACKTEST_TELEGRAM_BOT_TOKEN 未設定"
         )
 
         return
 
+    log(
+        "✅ Telegram Token 已讀取"
+    )
+
     # --------------------------------------------------------
-    # Bot
+    # getMe
     # --------------------------------------------------------
 
     me = telegram(
-        "getMe"
+        "getMe",
+        timeout=20
+    )
+
+    if not me.get("ok"):
+
+        log(
+            "❌ Telegram Bot Token 無法使用"
+        )
+
+        return
+
+    bot_username = (
+        me.get("result", {})
+        .get("username", "")
     )
 
     log(
-        "🤖 Bot：",
-        me
+        f"🤖 Bot：@{bot_username}"
     )
 
     # --------------------------------------------------------
@@ -2510,119 +2428,146 @@ def main():
     # --------------------------------------------------------
 
     webhook = telegram(
-        "getWebhookInfo"
+        "getWebhookInfo",
+        timeout=20
     )
 
-    if (
+    webhook_url = (
         webhook
-        and
-        webhook.get("url")
-    ):
+        .get("result", {})
+        .get("url", "")
+    )
+
+    if webhook_url:
 
         log(
-            "❌ Bot 目前有 webhook：",
-            webhook.get("url")
+            "⚠️ Telegram 目前存在 Webhook："
+            f"{webhook_url}"
         )
 
         log(
-            "請先移除 webhook，"
-            "才能使用 getUpdates。"
+            "⚠️ 本程式使用 getUpdates，"
+            "請先移除 Webhook。"
         )
 
         return
 
-    # ========================================================
-    # ⭐ Telegram offset
-    #
-    # 不要在這裡先呼叫 getUpdates 丟掉訊息。
-    #
-    # 從 offset = 0 開始，
-    # 取得尚未確認的訊息。
-    #
-    # 每處理一則後：
-    # offset = update_id + 1
-    #
-    # Telegram 官方規則就是這樣。
-    # ========================================================
+    # --------------------------------------------------------
+    # 開始接收 Telegram
+    # --------------------------------------------------------
 
     offset = 0
 
-    # GitHub Actions 每5分鐘執行一次
-    # 每次最多等待約230秒
+    log(
+        "📡 開始等待 Telegram 訊息..."
+    )
 
+    # GitHub Actions 每次執行最多抓約 230 秒
     end_time = (
         time.time()
         + 230
     )
 
-    log(
-        "🟢 開始等待 Telegram 指令"
-    )
-
     while time.time() < end_time:
 
-        remaining = max(
-            1,
-            min(
+        try:
+
+            remaining = int(
+                end_time
+                - time.time()
+            )
+
+            if remaining <= 0:
+                break
+
+            timeout = min(
                 20,
-                int(
-                    end_time
-                    - time.time()
-                )
-            )
-        )
-
-        updates = telegram(
-            "getUpdates",
-            {
-                "offset": offset,
-                "timeout": remaining,
-                "allowed_updates":
-                    '["message"]'
-            }
-        )
-
-        if not updates:
-
-            continue
-
-        for u in updates:
-
-            update_id = u.get(
-                "update_id"
+                remaining
             )
 
-            try:
+            response = telegram(
+                "getUpdates",
+                {
+                    "offset": offset,
+                    "timeout": timeout,
+                    "allowed_updates": [
+                        "message"
+                    ]
+                },
+                timeout=timeout + 10
+            )
 
-                handle_update(u)
-
-            except Exception as e:
+            if not response.get("ok"):
 
                 log(
-                    "❌ handle error:",
-                    repr(e)
+                    "⚠️ getUpdates 失敗"
                 )
 
-            finally:
+                time.sleep(3)
+
+                continue
+
+            updates = response.get(
+                "result",
+                []
+            )
+
+            if not updates:
+                continue
+
+            for u in updates:
+
+                update_id = u.get(
+                    "update_id"
+                )
+
+                try:
+
+                    handle_update(u)
+
+                except Exception as e:
+
+                    log(
+                        f"❌ 處理 Update 失敗：{e}"
+                    )
 
                 # ------------------------------------------------
-                # ⭐⭐⭐ 處理完才確認
+                # 非常重要：
+                # 處理完才推進 offset
                 # ------------------------------------------------
 
-                if update_id is not None:
+                if (
+                    update_id is not None
+                    and
+                    update_id >= offset
+                ):
 
-                    offset = max(
-                        offset,
-                        int(update_id) + 1
+                    offset = (
+                        update_id + 1
                     )
 
                     log(
-                        "✅ Telegram offset：",
-                        offset
+                        f"🔢 Offset 更新：{offset}"
                     )
 
+        except KeyboardInterrupt:
+
+            log(
+                "🛑 手動停止"
+            )
+
+            break
+
+        except Exception as e:
+
+            log(
+                f"⚠️ 主迴圈錯誤：{e}"
+            )
+
+            time.sleep(3)
+
     log(
-        "⏹️ 本次 Telegram 輪詢結束"
+        "⏹ 本次 GitHub Actions 執行結束"
     )
 
 
