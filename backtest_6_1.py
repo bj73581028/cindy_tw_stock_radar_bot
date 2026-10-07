@@ -426,79 +426,153 @@ def help_text():
 
 
 def handle_update(u):
-    m=u.get('message',{}); chat=m.get('chat',{}); cid=chat.get('id'); text=str(m.get('text','')).strip()
-    if not cid or not text: return
-    print('📨 收到訊息：',text,'chat_id=',cid)
+    m = u.get('message', {})
+    chat = m.get('chat', {})
+    cid = chat.get('id')
+    text = str(m.get('text', '')).strip()
+
+    if not cid or not text:
+        return
+
+    print('📨 收到訊息：', text, 'chat_id=', cid)
+
+    # ==============================
+    # /start /help
+    # ==============================
     if text.startswith('/start') or text.startswith('/help'):
-        send(cid,help_text()); return
-    if text.startswith('/分析'): q=text[3:].strip()
-    elif text.startswith('/analyze'): q=text[8:].strip()
-    else: q=text
+        send(cid, help_text())
+        return
+
+    # ==============================
+    # 取得實際查詢內容
+    # ==============================
+    if text.startswith('/分析'):
+        q = text[3:].strip()
+
+    elif text.startswith('/analyze'):
+        q = text[8:].strip()
+
+    elif text.startswith('/backtest'):
+        q = text[9:].strip()
+
+        # 目前這個版本沒有真正的歷史回測功能
+        # 如果輸入 /backtest 大盤
+        # 先讓它直接進入大盤分析，確保 Telegram 有反應
+        if is_market_query(q):
+            print('📊 收到 /backtest 大盤，改由大盤分析模組處理')
+
+            send(
+                cid,
+                '🔎 收到 <b>大盤</b> 指令，正在分析台股大盤，請稍候...'
+            )
+
+            x, err = analyze_market()
+
+            if err:
+                send(cid, '⚠️ ' + err)
+                return
+
+            send(cid, market_report(x))
+            print('✅ 大盤分析完成')
+            return
+
+        # 非大盤的 /backtest 暫時提示
+        send(
+            cid,
+            '⚠️ 目前此版本的 /backtest 僅先支援「大盤」。\n\n'
+            '請輸入：\n'
+            '<code>/backtest 大盤</code>'
+        )
+        return
+
+    else:
+        # 直接輸入，例如：
+        # 大盤
+        # 3563
+        # 牧德
+        q = text
+
+    # ==============================
+    # 沒有輸入內容
+    # ==============================
     if not q:
-        send(cid,help_text()); return
+        send(cid, help_text())
+        return
+
+    # ==============================
+    # ⭐ 大盤判斷
+    # ==============================
     if is_market_query(q):
-        send(cid,'🔎 正在分析 <b>台股大盤</b>，請稍候...')
-        x,err=analyze_market()
-        if err: send(cid,'⚠️ '+err); return
-        send(cid,market_report(x)); print('✅ 大盤分析完成'); return
-    send(cid,f'🔎 正在分析 <b>{q}</b>，請稍候...')
-    stock,err=find_stock(q)
-    if err: send(cid,'⚠️ '+err); return
-    print('🔎 分析：',stock)
-    x,err=analyze(stock)
+
+        print('📊 偵測到大盤指令：', q)
+
+        send(
+            cid,
+            '🔎 正在分析 <b>台股大盤</b>，請稍候...'
+        )
+
+        try:
+            x, err = analyze_market()
+
+            if err:
+                print('❌ 大盤分析錯誤：', err)
+                send(cid, '⚠️ ' + err)
+                return
+
+            send(cid, market_report(x))
+
+            print('✅ 大盤分析完成')
+
+        except Exception as e:
+            print('❌ 大盤分析例外：', repr(e))
+
+            send(
+                cid,
+                '⚠️ 大盤分析發生錯誤。\n'
+                '請稍後再試。'
+            )
+
+        return
+
+    # ==============================
+    # ⭐ 個股分析
+    # ==============================
+    send(
+        cid,
+        f'🔎 正在分析 <b>{q}</b>，請稍候...'
+    )
+
+    stock, err = find_stock(q)
+
     if err:
-        send(cid,f'⚠️ {stock["code"]} {stock["name"]}\n{err}'); return
-    send(cid,report(x)); print('✅ 個股分析完成：',stock['code'],stock['name'])
-
-
-def main():
-    print('======================================')
-    print('📊 Taiwan Stock Radar 6.1 Technical Bot')
-    print('======================================')
-
-    if not TOKEN:
-        print('❌ BOT TOKEN 未讀取，請檢查 GitHub Secret：BACKTEST_TELEGRAM_BOT_TOKEN')
+        send(cid, '⚠️ ' + err)
         return
 
-    me = telegram('getMe')
-    print('🤖 Bot：', me)
-    webhook = telegram('getWebhookInfo')
-    if webhook and webhook.get('url'):
-        print('❌ 目前 Bot 有 webhook：', webhook.get('url'))
-        print('請移除 webhook 後才能使用 getUpdates。')
-        return
+    print('🔎 分析：', stock)
 
-    # 先取得目前 offset，避免把很久以前的舊訊息一次全部重跑
-    updates = telegram('getUpdates', {'timeout': 1, 'allowed_updates': '["message"]'})
-    offset = 0
-    if updates:
-        offset = max(u.get('update_id', 0) for u in updates) + 1
-        print('ℹ️ 忽略舊訊息，起始 offset =', offset)
+    try:
+        x, err = analyze(stock)
 
-    # 每次 Actions 執行約 4 分鐘持續輪詢，配合每 5 分鐘排程
-    end_at = time.time() + 240
-    print('🟢 開始持續等待 Telegram 指令（約 4 分鐘）')
+        if err:
+            send(
+                cid,
+                f'⚠️ {stock["code"]} {stock["name"]}\n{err}'
+            )
+            return
 
-    while time.time() < end_at:
-        remaining = max(1, min(30, int(end_at - time.time())))
-        updates = telegram('getUpdates', {
-            'offset': offset,
-            'timeout': remaining,
-            'allowed_updates': '["message"]'
-        })
-        if not updates:
-            continue
-        for u in updates:
-            uid = u.get('update_id')
-            if uid is not None:
-                offset = max(offset, uid + 1)
-            try:
-                handle_update(u)
-            except Exception as e:
-                print('❌ 處理訊息錯誤：', repr(e))
+        send(cid, report(x))
 
-    print('⏹️ 本次輪詢結束')
+        print(
+            '✅ 個股分析完成：',
+            stock['code'],
+            stock['name']
+        )
 
+    except Exception as e:
+        print('❌ 個股分析例外：', repr(e))
 
-if __name__ == '__main__':
-    main()
+        send(
+            cid,
+            f'⚠️ {q} 分析發生錯誤。\n'
+            '請稍後再試。'
+        )
