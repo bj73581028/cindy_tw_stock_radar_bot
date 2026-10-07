@@ -5,11 +5,15 @@ on:
   schedule:
     - cron: '*/5 * * * *'
 
+concurrency:
+  group: taiwan-stock-radar-telegram
+  cancel-in-progress: false
+
 jobs:
   bot:
-    name: Telegram Technical Analysis
+    name: Taiwan Stock Radar 6.1
     runs-on: ubuntu-latest
-
+    timeout-minutes: 5
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -24,8 +28,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install pandas numpy yfinance requests
 
-      - name: Run Telegram Technical Bot
+      - name: Check Telegram Secret
         env:
           BACKTEST_TELEGRAM_BOT_TOKEN: ${{ secrets.BACKTEST_TELEGRAM_BOT_TOKEN }}
         run: |
-          python backtest_6_1.py
+          if [ -z "$BACKTEST_TELEGRAM_BOT_TOKEN" ]; then
+            echo "❌ BACKTEST_TELEGRAM_BOT_TOKEN 未讀取"
+            exit 1
+          fi
+          echo "✅ BOT TOKEN：已讀取"
+
+      - name: Run bot
+        env:
+          BACKTEST_TELEGRAM_BOT_TOKEN: ${{ secrets.BACKTEST_TELEGRAM_BOT_TOKEN }}
+        run: python backtest_6_1.py
