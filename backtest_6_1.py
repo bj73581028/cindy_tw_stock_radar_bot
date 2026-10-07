@@ -1,3 +1,5 @@
+print("🔥🔥🔥 RUNNING NEW 6.1 CODE 🔥🔥🔥")
+print("VERSION =", VERSION)
 import os
 import time
 import warnings
@@ -30,7 +32,7 @@ warnings.filterwarnings("ignore")
 # ⚠️ 本程式不是回測
 # ============================================================
 
-VERSION = "6.1-TECH-BOT"
+VERSION = "6.1-TECH-BOT-20261007"
 
 TZ = ZoneInfo("Asia/Taipei")
 
